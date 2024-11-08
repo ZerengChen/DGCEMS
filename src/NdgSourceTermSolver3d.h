@@ -17,7 +17,7 @@ public:
 	NdgSourceTermSolver3d();
 	~NdgSourceTermSolver3d();
 
-	void EvaluateSourceTerm(double *fphys, double *frhs);
+	void EvaluateSourceTerm(double *fphys, double *frhs, int*pE3d, int MyID);
 
 	SWETopographySourceTerm3d swetopographysourceterm3d;
 	SWECoriolisTerm3d swecoriolisterm3d;
@@ -32,7 +32,7 @@ public:
 	NdgSourceTermSolver3d();
 	~NdgSourceTermSolver3d();
 
-	void EvaluateSourceTerm(double *fphys, double *frhs, double *time_, double *HS, double *T, double *DIR, double *QB, double *WLEN);
+	void EvaluateSourceTerm(double *fphys, double *frhs, double *time_, double *HS, double *T, double *DIR, double *QB, double *WLEN, int*pE2d, int*pE3d, int MyID);
 
 	SWETopographySourceTerm3d swetopographysourceterm3d;
 	SWECoriolisTerm3d swecoriolisterm3d;

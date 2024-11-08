@@ -12,7 +12,7 @@ public:
 	UpdateImplicitRHS();
 	~UpdateImplicitRHS();
 
-	void EvaluateupdateimplicitRHS(double *fphys_, double *nv_v, double *frhs_, double ImplicitA, double *BBE, double *SBE, int *varIndex);
+	void EvaluateupdateimplicitRHS(double *fphys_, double *nv_v, double *frhs_, double ImplicitA, double *BBE, double *SBE, int *varIndex,int*,int*,int);
 
 
 };

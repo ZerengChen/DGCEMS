@@ -38,7 +38,7 @@ extern signed char *Status3d;
 //}
 
 
-void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, double *fphys_, double *fext2d_, double *fext3d_)
+void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, double *fphys_, double *fext2d_, double *fext3d_, int* pE2d,int* pE3d, int MyID)
 {
 	//mexAtExit(&MyExit);
 	/*Properties contained in mesh2d*/
@@ -195,18 +195,20 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K3d; k++){
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			/*$\bold{r_x}\cdot (Dr*hu2d)+\bold{s_x}\cdot (Ds*hu2d)$*/
-			GetVolumnIntegral2d(UpdatedVSVolumeIntegralX3d + k * Np3d, UpdatedVSTempVolumeIntegralX3d + k * Np3d, &np, &oneI, &np, &one, \
-				Dr3d, Ds3d, &np, hu3d + k * Np3d, &np, &zero, &np, rx3d + k * Np3d, sx3d + k * Np3d);
-			/*$\bold{r_y}\cdot (Dr*hv)+\bold{s_y}\cdot (Ds*hv)$*/
-			GetVolumnIntegral2d(UpdatedVSVolumeIntegralY3d + k * Np3d, UpdatedVSTempVolumeIntegralY3d + k * Np3d, &np, &oneI, &np, &one, \
-				Dr3d, Ds3d, &np, hv3d + k * Np3d, &np, &zero, &np, ry3d + k * Np3d, sy3d + k * Np3d);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				/*$\bold{r_x}\cdot (Dr*hu2d)+\bold{s_x}\cdot (Ds*hu2d)$*/
+				GetVolumnIntegral2d(UpdatedVSVolumeIntegralX3d + k * Np3d, UpdatedVSTempVolumeIntegralX3d + k * Np3d, &np, &oneI, &np, &one, \
+					Dr3d, Ds3d, &np, hu3d + k * Np3d, &np, &zero, &np, rx3d + k * Np3d, sx3d + k * Np3d);
+				/*$\bold{r_y}\cdot (Dr*hv)+\bold{s_y}\cdot (Ds*hv)$*/
+				GetVolumnIntegral2d(UpdatedVSVolumeIntegralY3d + k * Np3d, UpdatedVSTempVolumeIntegralY3d + k * Np3d, &np, &oneI, &np, &one, \
+					Dr3d, Ds3d, &np, hv3d + k * Np3d, &np, &zero, &np, ry3d + k * Np3d, sy3d + k * Np3d);
 
-			Add(UpdatedVSrhs3d + k * Np3d, UpdatedVSVolumeIntegralX3d + k * Np3d, UpdatedVSVolumeIntegralY3d + k * Np3d, Np3d);
-		}
-		else {
-			continue;
+				Add(UpdatedVSrhs3d + k * Np3d, UpdatedVSVolumeIntegralX3d + k * Np3d, UpdatedVSVolumeIntegralY3d + k * Np3d, Np3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -215,16 +217,19 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < IENe3d; e++){
 		int adjacentE = (int)IEFToE3d[2 * e];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			FetchInnerEdgeFacialValue(IEhM3d + e * IENfp3d, IEhP3d + e * IENfp3d, h3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
-			FetchInnerEdgeFacialValue(IEhuM3d + e * IENfp3d, IEhuP3d + e * IENfp3d, hu3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
-			FetchInnerEdgeFacialValue(IEhvM3d + e * IENfp3d, IEhvP3d + e * IENfp3d, hv3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
-			GetFacialFluxTerm2d(UpdatedVSIEFluxM3d + e * IENfp3d, IEhuM3d + e * IENfp3d, IEhvM3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, IENfp3d);
-			GetFacialFluxTerm2d(UpdatedVSIEFluxP3d + e * IENfp3d, IEhuP3d + e * IENfp3d, IEhvP3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, IENfp3d);
-			GetPCENumericalFluxTerm_HLLC_LAI(UpdatedVSIEFluxS3d + e * IENfp3d, UpdatedVSIEfm3d + e * IENfp3d, UpdatedVSIEfp3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, &gra, Hcrit, IENfp3d, IENe3d);
-		}
-		else {
-			continue;
+		int adjacentE2 = (int)IEFToE3d[2 * e + 1];
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				FetchInnerEdgeFacialValue(IEhM3d + e * IENfp3d, IEhP3d + e * IENfp3d, h3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
+				FetchInnerEdgeFacialValue(IEhuM3d + e * IENfp3d, IEhuP3d + e * IENfp3d, hu3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
+				FetchInnerEdgeFacialValue(IEhvM3d + e * IENfp3d, IEhvP3d + e * IENfp3d, hv3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
+				GetFacialFluxTerm2d(UpdatedVSIEFluxM3d + e * IENfp3d, IEhuM3d + e * IENfp3d, IEhvM3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, IENfp3d);
+				GetFacialFluxTerm2d(UpdatedVSIEFluxP3d + e * IENfp3d, IEhuP3d + e * IENfp3d, IEhvP3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, IENfp3d);
+				GetPCENumericalFluxTerm_HLLC_LAI(UpdatedVSIEFluxS3d + e * IENfp3d, UpdatedVSIEfm3d + e * IENfp3d, UpdatedVSIEfp3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, &gra, Hcrit, IENfp3d, IENe3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -236,11 +241,14 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < IENe2d; e++){
 		int adjacentE = (int)IEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
-			VerticalFaceColumnIntegral(UpdatedVSIEFluxS2d + e * IENfp2d, UpdatedVSIEFluxS3d + e * NLayer*IENfp3d, UpdatedVSIEfmod + e * IENfp3d, InvV2d, IENfp3d, IEJz3d + e * NLayer*IENfp3d, NLayer, V1d, IENfp2d, (int)(*(IEFToF3d + e * NLayer * 2)));
-		}
-		else {
-			continue;
+		int adjacentE2 = (int)IEFToE2d[2 * e + 1];
+		if ((MyID == pE2d[adjacentE - 1]) || (MyID == pE2d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
+				VerticalFaceColumnIntegral(UpdatedVSIEFluxS2d + e * IENfp2d, UpdatedVSIEFluxS3d + e * NLayer*IENfp3d, UpdatedVSIEfmod + e * IENfp3d, InvV2d, IENfp3d, IEJz3d + e * NLayer*IENfp3d, NLayer, V1d, IENfp2d, (int)(*(IEFToF3d + e * NLayer * 2)));
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -257,21 +265,23 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < BENe3d; e++){
 		int adjacentE = (int)BEFToE3d[2 * e];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			NdgEdgeType type = (NdgEdgeType)ftype3d[e];  // boundary condition
-			FetchBoundaryEdgeFacialValue(BEhuM3d + e * BENfp3d, hu3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
-			FetchBoundaryEdgeFacialValue(BEhvM3d + e * BENfp3d, hv3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
-			FetchBoundaryEdgeFacialValue(BEhM3d + e * BENfp3d, h3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
-			FetchBoundaryEdgeFacialValue(UpdatedVSBEzM3d + e * BENfp3d, z3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				NdgEdgeType type = (NdgEdgeType)ftype3d[e];  // boundary condition
+				FetchBoundaryEdgeFacialValue(BEhuM3d + e * BENfp3d, hu3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+				FetchBoundaryEdgeFacialValue(BEhvM3d + e * BENfp3d, hv3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+				FetchBoundaryEdgeFacialValue(BEhM3d + e * BENfp3d, h3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+				FetchBoundaryEdgeFacialValue(UpdatedVSBEzM3d + e * BENfp3d, z3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
 
-			ImposeBoundaryCondition(&gra, type, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, UpdatedVSBEfm3d + e * BENfp3d, UpdatedVSBEfp3d + e * BENfp3d, \
-				UpdatedVSBEzM3d + e * BENfp3d, UpdatedVSBEzP3d + e * BENfp3d, fext3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
-			EvaluateHydroStaticReconstructValue(Hcrit, UpdatedVSBEfm3d + e * BENfp3d, UpdatedVSBEfp3d + e * BENfp3d, UpdatedVSBEzM3d + e * BENfp3d, UpdatedVSBEzP3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
-			GetFacialFluxTerm2d(UpdatedVSBEFluxM3d + e * BENfp3d, BEhuM3d + e * BENfp3d, BEhvM3d + e * BENfp3d, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, BENfp3d);
-			GetPCENumericalFluxTerm_HLLC_LAI(UpdatedVSBEFluxS3d + e * BENfp3d, UpdatedVSBEfm3d + e * BENfp3d, UpdatedVSBEfp3d + e * BENfp3d, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, &gra, Hcrit, BENfp3d, BENe3d);
-		}
-		else {
-			continue;
+				ImposeBoundaryCondition(&gra, type, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, UpdatedVSBEfm3d + e * BENfp3d, UpdatedVSBEfp3d + e * BENfp3d, \
+					UpdatedVSBEzM3d + e * BENfp3d, UpdatedVSBEzP3d + e * BENfp3d, fext3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
+				EvaluateHydroStaticReconstructValue(Hcrit, UpdatedVSBEfm3d + e * BENfp3d, UpdatedVSBEfp3d + e * BENfp3d, UpdatedVSBEzM3d + e * BENfp3d, UpdatedVSBEzP3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
+				GetFacialFluxTerm2d(UpdatedVSBEFluxM3d + e * BENfp3d, BEhuM3d + e * BENfp3d, BEhvM3d + e * BENfp3d, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, BENfp3d);
+				GetPCENumericalFluxTerm_HLLC_LAI(UpdatedVSBEFluxS3d + e * BENfp3d, UpdatedVSBEfm3d + e * BENfp3d, UpdatedVSBEfp3d + e * BENfp3d, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, &gra, Hcrit, BENfp3d, BENe3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -282,11 +292,13 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < BENe2d; e++){
 		int adjacentE = (int)BEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
-			VerticalFaceColumnIntegral(UpdatedVSBEFluxS2d + e * BENfp2d, UpdatedVSBEFluxS3d + e * NLayer*BENfp3d, UpdatedVSBEfmod + e * BENfp3d, InvV2d, BENfp3d, BEJz3d + e * NLayer*BENfp3d, NLayer, V1d, BENfp2d, (int)(*(BEFToF3d + e * NLayer * 2)));
-		}
-		else {
-			continue;
+		if (MyID == pE2d[adjacentE - 1]) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
+				VerticalFaceColumnIntegral(UpdatedVSBEFluxS2d + e * BENfp2d, UpdatedVSBEFluxS3d + e * NLayer*BENfp3d, UpdatedVSBEfmod + e * BENfp3d, InvV2d, BENfp3d, BEJz3d + e * NLayer*BENfp3d, NLayer, V1d, BENfp2d, (int)(*(BEFToF3d + e * NLayer * 2)));
+			}
+			else {
+				continue;
+			}
 		}
 	}
     
@@ -295,11 +307,14 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < IENe3d; e++){
 		int adjacentE = (int)IEFToE3d[2 * e];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			StrongFormInnerEdgeRHS(e, IEFToE3d, IEFToF3d, Np3d, K3d, IENfp3d, IEFToN13d, IEFToN23d, UpdatedVSIEFluxM3d, UpdatedVSIEFluxP3d, UpdatedVSIEFluxS3d, IEJs3d, IEMb3d, UpdatedVSERHS3d);
-		}
-		else {
-			continue;
+		int adjacentE2 = (int)IEFToE3d[2 * e + 1];
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				StrongFormInnerEdgeRHS(e, IEFToE3d, IEFToF3d, Np3d, K3d, IENfp3d, IEFToN13d, IEFToN23d, UpdatedVSIEFluxM3d, UpdatedVSIEFluxP3d, UpdatedVSIEFluxS3d, IEJs3d, IEMb3d, UpdatedVSERHS3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 #ifdef _OPENMP
@@ -307,38 +322,44 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < BENe3d; e++){
 		int adjacentE = (int)BEFToE3d[2 * e];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			StrongFormBoundaryEdgeRHS(e, BEFToE3d, BEFToF3d, Np3d, K3d, BENfp3d, BEFToN13d, UpdatedVSBEFluxM3d, UpdatedVSBEFluxS3d, BEJs3d, BEMb3d, UpdatedVSERHS3d);
-		}
-		else {
-			continue;
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				StrongFormBoundaryEdgeRHS(e, BEFToE3d, BEFToF3d, Np3d, K3d, BENfp3d, BEFToN13d, UpdatedVSBEFluxM3d, UpdatedVSBEFluxS3d, BEJs3d, BEMb3d, UpdatedVSERHS3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
     
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
-    for (int k = 0; k < K3d; k++){
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			for (int face = 1; face < Nface; face++) {
-				Add(UpdatedVSERHS3d + k * Np3d, UpdatedVSERHS3d + k * Np3d, UpdatedVSERHS3d + face * Np3d*K3d + k * Np3d, Np3d);
+	for (int k = 0; k < K3d; k++) {
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				for (int face = 1; face < Nface; face++) {
+					Add(UpdatedVSERHS3d + k * Np3d, UpdatedVSERHS3d + k * Np3d, UpdatedVSERHS3d + face * Np3d*K3d + k * Np3d, Np3d);
+				}
 			}
-		}
-		else {
-			continue;
-		}
+			else {
+				continue;
+		    }
+	    }
     }
 	
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K3d; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			MultiEdgeContributionByLiftOperator(UpdatedVSERHS3d + k * Np3d, UpdatedVSTempFacialIntegral3d + k * Np3d, &np, &oneI, &np, \
-				&one, invM3d, &np, &np, &zero, &np, J3d + k * Np3d, Np3d);
-		}
-		else {
-			continue;
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				MultiEdgeContributionByLiftOperator(UpdatedVSERHS3d + k * Np3d, UpdatedVSTempFacialIntegral3d + k * Np3d, &np, &oneI, &np, \
+					&one, invM3d, &np, &np, &zero, &np, J3d + k * Np3d, Np3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -347,11 +368,13 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K3d; k++){
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			Minus(UpdatedVSrhs3d + k * Np3d, UpdatedVSERHS3d + k * Np3d, UpdatedVSrhs3d + k * Np3d, Np3d);
-		}
-		else {
-			continue;
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				Minus(UpdatedVSrhs3d + k * Np3d, UpdatedVSERHS3d + k * Np3d, UpdatedVSrhs3d + k * Np3d, Np3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -375,18 +398,20 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++){
-		if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
-			/*$\bold{r_x}\cdot (Dr*hu2d)+\bold{s_x}\cdot (Ds*hu2d)$*/
-			GetVolumnIntegral2d(UpdatedVSVolumeIntegralX + k * Np2d, UpdatedVSTempVolumeIntegralX + k * Np2d, &np, &oneI, &np, &one, \
-				Dr2d, Ds2d, &np, hu2d + k * Np2d, &np, &zero, &np, rx2d + k * Np2d, sx2d + k * Np2d);
-			/*$\bold{r_y}\cdot (Dr*hv2d)+\bold{s_y}\cdot (Ds*hv2d)$*/
-			GetVolumnIntegral2d(UpdatedVSVolumeIntegralY + k * Np2d, UpdatedVSTempVolumeIntegralY + k * Np2d, &np, &oneI, &np, &one, \
-				Dr2d, Ds2d, &np, hv2d + k * Np2d, &np, &zero, &np, ry2d + k * Np2d, sy2d + k * Np2d);
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
+				/*$\bold{r_x}\cdot (Dr*hu2d)+\bold{s_x}\cdot (Ds*hu2d)$*/
+				GetVolumnIntegral2d(UpdatedVSVolumeIntegralX + k * Np2d, UpdatedVSTempVolumeIntegralX + k * Np2d, &np, &oneI, &np, &one, \
+					Dr2d, Ds2d, &np, hu2d + k * Np2d, &np, &zero, &np, rx2d + k * Np2d, sx2d + k * Np2d);
+				/*$\bold{r_y}\cdot (Dr*hv2d)+\bold{s_y}\cdot (Ds*hv2d)$*/
+				GetVolumnIntegral2d(UpdatedVSVolumeIntegralY + k * Np2d, UpdatedVSTempVolumeIntegralY + k * Np2d, &np, &oneI, &np, &one, \
+					Dr2d, Ds2d, &np, hv2d + k * Np2d, &np, &zero, &np, ry2d + k * Np2d, sy2d + k * Np2d);
 
-			Add(UpdatedVSrhs2d + k * Np2d, UpdatedVSVolumeIntegralX + k * Np2d, UpdatedVSVolumeIntegralY + k * Np2d, Np2d);
-		}
-		else {
-			continue;
+				Add(UpdatedVSrhs2d + k * Np2d, UpdatedVSVolumeIntegralX + k * Np2d, UpdatedVSVolumeIntegralY + k * Np2d, Np2d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 	/*Two dimensional inner edge flux part*/
@@ -396,15 +421,18 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < IENe2d; e++){
 		int adjacentE = (int)IEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
-			FetchInnerEdgeFacialValue(IEhM2d + e * IENfp2d, IEhP2d + e * IENfp2d, h2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
-			FetchInnerEdgeFacialValue(IEhuM2d + e * IENfp2d, IEhuP2d + e * IENfp2d, hu2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
-			FetchInnerEdgeFacialValue(IEhvM2d + e * IENfp2d, IEhvP2d + e * IENfp2d, hv2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
-			GetFacialFluxTerm2d(UpdatedVSIEFluxM2d + e * IENfp2d, IEhuM2d + e * IENfp2d, IEhvM2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
-			GetFacialFluxTerm2d(UpdatedVSIEFluxP2d + e * IENfp2d, IEhuP2d + e * IENfp2d, IEhvP2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
-		}
-		else {
-			continue;
+		int adjacentE2 = (int)IEFToE2d[2 * e + 1];
+		if ((MyID == pE2d[adjacentE - 1]) || (MyID == pE2d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
+				FetchInnerEdgeFacialValue(IEhM2d + e * IENfp2d, IEhP2d + e * IENfp2d, h2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
+				FetchInnerEdgeFacialValue(IEhuM2d + e * IENfp2d, IEhuP2d + e * IENfp2d, hu2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
+				FetchInnerEdgeFacialValue(IEhvM2d + e * IENfp2d, IEhvP2d + e * IENfp2d, hv2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
+				GetFacialFluxTerm2d(UpdatedVSIEFluxM2d + e * IENfp2d, IEhuM2d + e * IENfp2d, IEhvM2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
+				GetFacialFluxTerm2d(UpdatedVSIEFluxP2d + e * IENfp2d, IEhuP2d + e * IENfp2d, IEhvP2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -418,19 +446,21 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < BENe2d; e++){
 		int adjacentE = (int)BEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
-			NdgEdgeType type = (NdgEdgeType)ftype2d[e];  // boundary condition
-			FetchBoundaryEdgeFacialValue(BEhM2d + e * BENfp2d, h2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			FetchBoundaryEdgeFacialValue(BEhuM2d + e * BENfp2d, hu2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			FetchBoundaryEdgeFacialValue(BEhvM2d + e * BENfp2d, hv2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			FetchBoundaryEdgeFacialValue(UpdatedVSBEzM2d + e * BENfp2d, z2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			ImposeBoundaryCondition(&gra, type, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, UpdatedVSBEfm2d + e * BENfp2d, UpdatedVSBEfp2d + e * BENfp2d, \
-				UpdatedVSBEzM2d + e * BENfp2d, UpdatedVSBEzP2d + e * BENfp2d, fext2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
-			EvaluateHydroStaticReconstructValue(Hcrit, UpdatedVSBEfm2d + e * BENfp2d, UpdatedVSBEfp2d + e * BENfp2d, UpdatedVSBEzM2d + e * BENfp2d, UpdatedVSBEzP2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
-			GetFacialFluxTerm2d(UpdatedVSBEFluxM2d + e * BENfp2d, BEhuM2d + e * BENfp2d, BEhvM2d + e * BENfp2d, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, BENfp2d);
-		}
-		else {
-			continue;
+		if (MyID == pE2d[adjacentE - 1]) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
+				NdgEdgeType type = (NdgEdgeType)ftype2d[e];  // boundary condition
+				FetchBoundaryEdgeFacialValue(BEhM2d + e * BENfp2d, h2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				FetchBoundaryEdgeFacialValue(BEhuM2d + e * BENfp2d, hu2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				FetchBoundaryEdgeFacialValue(BEhvM2d + e * BENfp2d, hv2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				FetchBoundaryEdgeFacialValue(UpdatedVSBEzM2d + e * BENfp2d, z2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				ImposeBoundaryCondition(&gra, type, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, UpdatedVSBEfm2d + e * BENfp2d, UpdatedVSBEfp2d + e * BENfp2d, \
+					UpdatedVSBEzM2d + e * BENfp2d, UpdatedVSBEzP2d + e * BENfp2d, fext2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
+				EvaluateHydroStaticReconstructValue(Hcrit, UpdatedVSBEfm2d + e * BENfp2d, UpdatedVSBEfp2d + e * BENfp2d, UpdatedVSBEzM2d + e * BENfp2d, UpdatedVSBEzP2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
+				GetFacialFluxTerm2d(UpdatedVSBEFluxM2d + e * BENfp2d, BEhuM2d + e * BENfp2d, BEhvM2d + e * BENfp2d, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, BENfp2d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -439,38 +469,45 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #endif
 	for (int e = 0; e < IENe2d; e++){
 		int adjacentE = (int)IEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
-			StrongFormInnerEdgeRHS(e, IEFToE2d, IEFToF2d, Np2d, K2d, IENfp2d, IEFToN12d, IEFToN22d, UpdatedVSIEFluxM2d, UpdatedVSIEFluxP2d, UpdatedVSIEFluxS2d, IEJs2d, IEMb2d, UpdatedVSERHS2d);
-		}
-		else {
-			continue;
+		int adjacentE2 = (int)IEFToE2d[2 * e + 1];
+		if ((MyID == pE2d[adjacentE - 1]) || (MyID == pE2d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
+				StrongFormInnerEdgeRHS(e, IEFToE2d, IEFToF2d, Np2d, K2d, IENfp2d, IEFToN12d, IEFToN22d, UpdatedVSIEFluxM2d, UpdatedVSIEFluxP2d, UpdatedVSIEFluxS2d, IEJs2d, IEMb2d, UpdatedVSERHS2d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
-	for (int e = 0; e < BENe2d; e++){
+	for (int e = 0; e < BENe2d; e++) {
 		int adjacentE = (int)BEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
-			StrongFormBoundaryEdgeRHS(e, BEFToE2d, BEFToF2d, Np2d, K2d, BENfp2d, BEFToN12d, UpdatedVSBEFluxM2d, UpdatedVSBEFluxS2d, BEJs2d, BEMb2d, UpdatedVSERHS2d);
-		}
-		else {
-			continue;
-		}
+		if (MyID == pE2d[adjacentE - 1]) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionWet) {
+				StrongFormBoundaryEdgeRHS(e, BEFToE2d, BEFToF2d, Np2d, K2d, BENfp2d, BEFToN12d, UpdatedVSBEFluxM2d, UpdatedVSBEFluxS2d, BEJs2d, BEMb2d, UpdatedVSERHS2d);
+			}
+			else {
+				continue;
+		    }
+	    }
 	}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++){
-		if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
-			for (int face = 1; face < Nface; face++) {
+		if (MyID == pE2d[k]) {
+		    if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
+			    for (int face = 1; face < Nface; face++) {
 				Add(UpdatedVSERHS2d + k * Np2d, UpdatedVSERHS2d + k * Np2d, UpdatedVSERHS2d + face * Np2d*K2d + k * Np2d, Np2d);
-			}
-		}
-		else {
-			continue;
+			    }
+		    }
+		    else {
+			    continue;
+		    }
 		}
 	}
 
@@ -478,27 +515,31 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++) {
-		if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
-			MultiEdgeContributionByLiftOperator(UpdatedVSERHS2d + k * Np2d, UpdatedVSTempFacialIntegral + k * Np2d, &np, &oneI, &np, \
-				&one, invM2d, &np, &np, &zero, &np, J2d + k * Np2d, Np2d);
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
+				MultiEdgeContributionByLiftOperator(UpdatedVSERHS2d + k * Np2d, UpdatedVSTempFacialIntegral + k * Np2d, &np, &oneI, &np, \
+					&one, invM2d, &np, &np, &zero, &np, J2d + k * Np2d, Np2d);
+			}
+			else {
+				continue;
+			}
+			}
 		}
-		else {
-			continue;
-		}
-	}
 
 	/*Add face integral and volume integral up to form the right hand side corresponding to the discretization of the depth-averaged part*/
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
-	for (int k = 0; k < K2d; k++){
-		if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
-			Minus(UpdatedVSrhs2d + k * Np2d, UpdatedVSERHS2d + k * Np2d, UpdatedVSrhs2d + k * Np2d, Np2d);
-		}
-		else {
-			continue;
-		}
+	for (int k = 0; k < K2d; k++) {
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
+				Minus(UpdatedVSrhs2d + k * Np2d, UpdatedVSERHS2d + k * Np2d, UpdatedVSrhs2d + k * Np2d, Np2d);
+			}
+			else {
+				continue;
+			}
+	    }
 	}
 
 
@@ -506,11 +547,13 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++){
-		if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
-			NdgExtend2dField(UpdatedVSfield2d, UpdatedVSrhs2d, Np2d, k, Np3d, NLayer, Nz);
-		}
-		else {
-			continue;
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
+				NdgExtend2dField(UpdatedVSfield2d, UpdatedVSrhs2d, Np2d, k, Np3d, NLayer, Nz);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -519,12 +562,14 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K3d; k++){
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			/*Substract the VSfield2d from VSrhs3d to assemble the final right hand side*/
-			Minus(UpdatedVSrhs3d + k * Np3d, UpdatedVSrhs3d + k * Np3d, UpdatedVSfield2d + k * Np3d, Np3d);
-		}
-		else {
-			continue;
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				/*Substract the VSfield2d from VSrhs3d to assemble the final right hand side*/
+				Minus(UpdatedVSrhs3d + k * Np3d, UpdatedVSrhs3d + k * Np3d, UpdatedVSfield2d + k * Np3d, Np3d);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -532,14 +577,16 @@ void CalculateVerticalVelocity::EvaluateVerticalVelocity(double *fphys2d_, doubl
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++){
-		if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
-			VerticalIntegralFromBottom(VerticalVelocity + k * NLayer*Np3d, UpdatedVSrhs3d + k * NLayer*Np3d, Jz + k * NLayer*Np3d, Updatedfmod + k * Np3d, NLayer, Np3d, InvV3d, Np2d, Npz, Vint);
-		}
-		//For partial dry and dry element, the VerticalVelocity in each layer is set to 0.
-		else {
-			for (int n = 0; n < NLayer; n++) {
-				for (int i = 0; i < Np3d; i++) {
-					VerticalVelocity[k * NLayer * Np3d + n * Np3d + i] = 0.0;
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionWet) {
+				VerticalIntegralFromBottom(VerticalVelocity + k * NLayer*Np3d, UpdatedVSrhs3d + k * NLayer*Np3d, Jz + k * NLayer*Np3d, Updatedfmod + k * Np3d, NLayer, Np3d, InvV3d, Np2d, Npz, Vint);
+			}
+			//For partial dry and dry element, the VerticalVelocity in each layer is set to 0.
+			else {
+				for (int n = 0; n < NLayer; n++) {
+					for (int i = 0; i < Np3d; i++) {
+						VerticalVelocity[k * NLayer * Np3d + n * Np3d + i] = 0.0;
+					}
 				}
 			}
 		}

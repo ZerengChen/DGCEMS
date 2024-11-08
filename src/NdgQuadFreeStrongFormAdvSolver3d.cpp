@@ -38,7 +38,7 @@ extern signed char *Status3d;
 	//return;
 //}
 
-void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, double *frhs_, double *fext, int *varFieldIndex_)
+void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, double *frhs_, double *fext, int *varFieldIndex_, int*pE3d, int MyID)
 {
 	double *rx = meshunion->rx;
 	double *sx = meshunion->sx;
@@ -158,32 +158,34 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 	for (int face = 0; face < IENe; face++){
 		int adjacentE = (int)IEFToE[2 * face];
 		int adjacentE2 = (int)IEFToE[2 * face + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue; 
-		}
-		else {
-			//printf("The order of thread is:%d\n",omp_get_thread_num());  // This is not thread-safe
-			/*Fetch variable IEfm and IEfp first*/
-			FetchInnerEdgeFacialValue(hM + face * IENfp, hP + face * IENfp, h, IEFToE + 2 * face, \
-				IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
-			FetchInnerEdgeFacialValue(huM + face * IENfp, huP + face * IENfp, hu, IEFToE + 2 * face, \
-				IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
-			FetchInnerEdgeFacialValue(hvM + face * IENfp, hvP + face * IENfp, hv, IEFToE + 2 * face, \
-				IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
-			/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included,
-			here 1 stands for the space occupied by water depth h.*/
-			for (int field = 2; field < Nvar; field++) {
-				FetchInnerEdgeFacialValue(IEfm + (field + 1)*IENe*IENfp + face * IENfp, \
-					IEfp + (field + 1)*IENe*IENfp + face * IENfp, fphys + (varFieldIndex[field] - 1)*Np*K, \
-					IEFToE + 2 * face, IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status3d[adjacentE2 - 1] == NdgRegionDry) {
+				continue; //不是湿单元旁边单元为湿单元才计算面积分//换成干单元旁边是干单元才不计算
 			}
+			else {
+				//printf("The order of thread is:%d\n",omp_get_thread_num());  // This is not thread-safe
+				/*Fetch variable IEfm and IEfp first*/
+				FetchInnerEdgeFacialValue(hM + face * IENfp, hP + face * IENfp, h, IEFToE + 2 * face, \
+					IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+				FetchInnerEdgeFacialValue(huM + face * IENfp, huP + face * IENfp, hu, IEFToE + 2 * face, \
+					IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+				FetchInnerEdgeFacialValue(hvM + face * IENfp, hvP + face * IENfp, hv, IEFToE + 2 * face, \
+					IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+				/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included,
+				here 1 stands for the space occupied by water depth h.*/
+				for (int field = 2; field < Nvar; field++) {
+					FetchInnerEdgeFacialValue(IEfm + (field + 1)*IENe*IENfp + face * IENfp, \
+						IEfp + (field + 1)*IENe*IENfp + face * IENfp, fphys + (varFieldIndex[field] - 1)*Np*K, \
+						IEFToE + 2 * face, IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+				}
 
-			EvaluateVerticalFaceSurfFlux(IEFluxM + face * IENfp, IEfm + face * IENfp, IEnx + face * IENfp, IEny + face * IENfp, &gra, Hcrit, IENfp, Nvar, IENe);
-			EvaluateVerticalFaceSurfFlux(IEFluxP + face * IENfp, IEfp + face * IENfp, IEnx + face * IENfp, IEny + face * IENfp, &gra, Hcrit, IENfp, Nvar, IENe);
+				EvaluateVerticalFaceSurfFlux(IEFluxM + face * IENfp, IEfm + face * IENfp, IEnx + face * IENfp, IEny + face * IENfp, &gra, Hcrit, IENfp, Nvar, IENe);
+				EvaluateVerticalFaceSurfFlux(IEFluxP + face * IENfp, IEfp + face * IENfp, IEnx + face * IENfp, IEny + face * IENfp, &gra, Hcrit, IENfp, Nvar, IENe);
 
-			EvaluateVerticalFaceNumFlux_HLLC_LAI(IEFluxS + face * IENfp, IEfm + face * IENfp, IEfp + face * IENfp, \
-				IEnx + face * IENfp, IEny + face * IENfp, &gra, Hcrit, IENfp, Nvar, IENe);
-			
+				EvaluateVerticalFaceNumFlux_HLLC_LAI(IEFluxS + face * IENfp, IEfm + face * IENfp, IEfp + face * IENfp, \
+					IEnx + face * IENfp, IEny + face * IENfp, &gra, Hcrit, IENfp, Nvar, IENe);
+
+			}
 		}
 	}
 
@@ -196,13 +198,15 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
     for (int face = 0; face < IENe; face++){
 		int adjacentE = (int)IEFToE[2 * face];
 		int adjacentE2 = (int)IEFToE[2 * face + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue; //不是湿单元旁边单元为湿单元才计算面积分
-		}
-		else {
-			for (int field = 0; field < Nvar; field++) {
-				StrongFormInnerEdgeRHS(face, IEFToE, IEFToF, Np, K, IENfp, IEFToN1, IEFToN2, IEFluxM + field * IENe*IENfp, \
-					IEFluxP + field * IENe*IENfp, IEFluxS + field * IENe*IENfp, IEJs, IEMb, ERHS + field * Np*K*Nface);
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status3d[adjacentE2 - 1] == NdgRegionDry) {
+				continue; //不是湿单元旁边单元为湿单元才计算面积分
+			}
+			else {
+				for (int field = 0; field < Nvar; field++) {
+					StrongFormInnerEdgeRHS(face, IEFToE, IEFToF, Np, K, IENfp, IEFToN1, IEFToN2, IEFluxM + field * IENe*IENfp, \
+						IEFluxP + field * IENe*IENfp, IEFluxS + field * IENe*IENfp, IEJs, IEMb, ERHS + field * Np*K*Nface);
+				}
 			}
 		}
 	}
@@ -224,30 +228,32 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
 	for (int face = 0; face < BENe; face++){
 		int adjacentE = (int)BEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
-			continue; //BEFToE is just itself
-		}
-		else {
-			NdgEdgeType type = (NdgEdgeType)ftype[face];  // boundary condition
-			FetchBoundaryEdgeFacialValue(huM + face * BENfp, hu, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
-			FetchBoundaryEdgeFacialValue(hvM + face * BENfp, hv, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
-			FetchBoundaryEdgeFacialValue(hM + face * BENfp, h, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
-			FetchBoundaryEdgeFacialValue(AdvzM + face * BENfp, z, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
-			/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included,
-			here 1 stands for the memory occupied by water depth h*/
-			for (int field = 2; field < Nvar; field++) {
-				FetchBoundaryEdgeFacialValue(BEfm + (field + 1)*BENe*BENfp + face * BENfp, \
-					fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
-					BEFToE + 2 * face, BEFToN1 + BENfp * face, Np, BENfp);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
+				continue; //BEFToE is just itself
 			}
-			ImposeBoundaryCondition(&gra, type, BEnx + face * BENfp, BEny + face * BENfp, BEfm + face * BENfp, BEfp + face * BENfp, \
-				AdvzM + face * BENfp, AdvzP + face * BENfp, fext + face * BENfp, BENfp, Nvar + 1, BENe);
-			EvaluateHydroStaticReconstructValue(Hcrit, BEfm + face * BENfp, BEfp + face * BENfp, AdvzM + face * BENfp, AdvzP + face * BENfp, BENfp, Nvar + 1, BENe);
+			else {
+				NdgEdgeType type = (NdgEdgeType)ftype[face];  // boundary condition
+				FetchBoundaryEdgeFacialValue(huM + face * BENfp, hu, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
+				FetchBoundaryEdgeFacialValue(hvM + face * BENfp, hv, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
+				FetchBoundaryEdgeFacialValue(hM + face * BENfp, h, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
+				FetchBoundaryEdgeFacialValue(AdvzM + face * BENfp, z, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
+				/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included,
+				here 1 stands for the memory occupied by water depth h*/
+				for (int field = 2; field < Nvar; field++) {
+					FetchBoundaryEdgeFacialValue(BEfm + (field + 1)*BENe*BENfp + face * BENfp, \
+						fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
+						BEFToE + 2 * face, BEFToN1 + BENfp * face, Np, BENfp);
+				}
+				ImposeBoundaryCondition(&gra, type, BEnx + face * BENfp, BEny + face * BENfp, BEfm + face * BENfp, BEfp + face * BENfp, \
+					AdvzM + face * BENfp, AdvzP + face * BENfp, fext + face * BENfp, BENfp, Nvar + 1, BENe);
+				EvaluateHydroStaticReconstructValue(Hcrit, BEfm + face * BENfp, BEfp + face * BENfp, AdvzM + face * BENfp, AdvzP + face * BENfp, BENfp, Nvar + 1, BENe);
 
-			EvaluateVerticalFaceSurfFlux(BEFluxM + face * BENfp, BEfm + face * BENfp, BEnx + face * BENfp, BEny + face * BENfp, &gra, Hcrit, BENfp, Nvar, BENe);
-			
-			EvaluateVerticalFaceNumFlux_HLLC_LAI(BEFluxS + face * BENfp, BEfm + face * BENfp, BEfp + face * BENfp, \
-				BEnx + face * BENfp, BEny + face * BENfp, &gra, Hcrit, BENfp, Nvar, BENe);
+				EvaluateVerticalFaceSurfFlux(BEFluxM + face * BENfp, BEfm + face * BENfp, BEnx + face * BENfp, BEny + face * BENfp, &gra, Hcrit, BENfp, Nvar, BENe);
+
+				EvaluateVerticalFaceNumFlux_HLLC_LAI(BEFluxS + face * BENfp, BEfm + face * BENfp, BEfp + face * BENfp, \
+					BEnx + face * BENfp, BEny + face * BENfp, &gra, Hcrit, BENfp, Nvar, BENe);
+			}
 		}
 	}
 
@@ -256,12 +262,14 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
 	for (int face = 0; face < BENe; face++){
 		int adjacentE = (int)BEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
-			continue; 
-		}
-		else {
-			for (int field = 0; field < Nvar; field++) {
-				StrongFormBoundaryEdgeRHS(face, BEFToE, BEFToF, Np, K, BENfp, BEFToN1, BEFluxM + field * BENe*BENfp, BEFluxS + field * BENe*BENfp, BEJs, BEMb, ERHS + field * Np*K*Nface);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				for (int field = 0; field < Nvar; field++) {
+					StrongFormBoundaryEdgeRHS(face, BEFToE, BEFToF, Np, K, BENfp, BEFToN1, BEFluxM + field * BENe*BENfp, BEFluxS + field * BENe*BENfp, BEJs, BEMb, ERHS + field * Np*K*Nface);
+				}
 			}
 		}
 	}
@@ -282,30 +290,32 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
 	for (int face = 0; face < BotENe; face++){
 		int adjacentE = (int)BotEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			/*Fetch variable BotEfm and BotEfp first*/
-			FetchInnerEdgeFacialValue(hM + face * BotENfp, hP + face * BotENfp, h, BotEFToE + 2 * face, \
-				BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
-			FetchInnerEdgeFacialValue(huM + face * BotENfp, huP + face * BotENfp, hu, BotEFToE + 2 * face, \
-				BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
-			FetchInnerEdgeFacialValue(hvM + face * BotENfp, hvP + face * BotENfp, hv, BotEFToE + 2 * face, \
-				BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
-			FetchInnerEdgeFacialValue(omegaM + face * BotENfp, omegaP + face * BotENfp, omega, BotEFToE + 2 * face, \
-				BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
-			/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included,
-			here 2 stands for the memory occupied by water depth h and omega*/
-			for (int field = 2; field < Nvar; field++) {
-				FetchInnerEdgeFacialValue(BotEfm + (field + 2)*BotENe*BotENfp + face * BotENfp, \
-					BotEfp + (field + 2)*BotENe*BotENfp + face * BotENfp, fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
-					BotEFToE + 2 * face, BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				/*Fetch variable BotEfm and BotEfp first*/
+				FetchInnerEdgeFacialValue(hM + face * BotENfp, hP + face * BotENfp, h, BotEFToE + 2 * face, \
+					BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+				FetchInnerEdgeFacialValue(huM + face * BotENfp, huP + face * BotENfp, hu, BotEFToE + 2 * face, \
+					BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+				FetchInnerEdgeFacialValue(hvM + face * BotENfp, hvP + face * BotENfp, hv, BotEFToE + 2 * face, \
+					BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+				FetchInnerEdgeFacialValue(omegaM + face * BotENfp, omegaP + face * BotENfp, omega, BotEFToE + 2 * face, \
+					BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+				/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included,
+				here 2 stands for the memory occupied by water depth h and omega*/
+				for (int field = 2; field < Nvar; field++) {
+					FetchInnerEdgeFacialValue(BotEfm + (field + 2)*BotENe*BotENfp + face * BotENfp, \
+						BotEfp + (field + 2)*BotENe*BotENfp + face * BotENfp, fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
+						BotEFToE + 2 * face, BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+				}
+				EvaluateHorizontalFaceSurfFlux(BotEFluxM + face * BotENfp, BotEfm + face * BotENfp, BotEnz + face * BotENfp, Hcrit, BotENfp, Nvar, BotENe);
+				EvaluateHorizontalFaceSurfFlux(BotEFluxP + face * BotENfp, BotEfp + face * BotENfp, BotEnz + face * BotENfp, Hcrit, BotENfp, Nvar, BotENe);
+				EvaluateHorizontalFaceNumFlux(BotEFluxS + face * BotENfp, BotEfm + face * BotENfp, BotEfp + face * BotENfp, \
+					BotEnz + face * BotENfp, Hcrit, BotENfp, Nvar, BotENe);
 			}
-			EvaluateHorizontalFaceSurfFlux(BotEFluxM + face * BotENfp, BotEfm + face * BotENfp, BotEnz + face * BotENfp, Hcrit, BotENfp, Nvar, BotENe);
-			EvaluateHorizontalFaceSurfFlux(BotEFluxP + face * BotENfp, BotEfp + face * BotENfp, BotEnz + face * BotENfp, Hcrit, BotENfp, Nvar, BotENe);
-			EvaluateHorizontalFaceNumFlux(BotEFluxS + face * BotENfp, BotEfm + face * BotENfp, BotEfp + face * BotENfp, \
-				BotEnz + face * BotENfp, Hcrit, BotENfp, Nvar, BotENe);
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -314,14 +324,16 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
     for (int face = 0; face < BotENe; face++){
 		int adjacentE = (int)BotEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			for (int field = 0; field < Nvar; field++) {
-				StrongFormInnerEdgeRHS(face, BotEFToE, BotEFToF, Np, K, BotENfp, BotEFToN1, BotEFToN2, BotEFluxM + field * BotENe*BotENfp, \
-					BotEFluxP + field * BotENe*BotENfp, BotEFluxS + field * BotENe*BotENfp, BotEJs, BotEMb, ERHS + field * Np*K*Nface);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				for (int field = 0; field < Nvar; field++) {
+					StrongFormInnerEdgeRHS(face, BotEFToE, BotEFToF, Np, K, BotENfp, BotEFToN1, BotEFToN2, BotEFluxM + field * BotENe*BotENfp, \
+						BotEFluxP + field * BotENe*BotENfp, BotEFluxS + field * BotENe*BotENfp, BotEJs, BotEMb, ERHS + field * Np*K*Nface);
+				}
 			}
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 	/*************************************************************************************************************************************/
@@ -342,24 +354,26 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
 	for (int face = 0; face < BotBENe; face++){
 		int adjacentE = (int)BotBEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			FetchBoundaryEdgeFacialValue(huM + face * BotBENfp, hu, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
-			FetchBoundaryEdgeFacialValue(hvM + face * BotBENfp, hv, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
-			FetchBoundaryEdgeFacialValue(omegaM + face * BotBENfp, omega, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
-			FetchBoundaryEdgeFacialValue(hM + face * BotBENfp, h, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				FetchBoundaryEdgeFacialValue(huM + face * BotBENfp, hu, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
+				FetchBoundaryEdgeFacialValue(hvM + face * BotBENfp, hv, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
+				FetchBoundaryEdgeFacialValue(omegaM + face * BotBENfp, omega, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
+				FetchBoundaryEdgeFacialValue(hM + face * BotBENfp, h, BotBEFToE + 2 * face, BotBEFToN1 + face * BotBENfp, Np, BotBENfp);
 
-			/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included
-			2 stands for the memory occupied by water depth h and omega*/
-			for (int field = 2; field < Nvar; field++) {
-				FetchBoundaryEdgeFacialValue(BotBEfm + (field + 2)*BotBENe*BotBENfp + face * BotBENfp, \
-					fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
-					BotBEFToE + 2 * face, BotBEFToN1 + BotBENfp * face, Np, BotBENfp);
+				/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included
+				2 stands for the memory occupied by water depth h and omega*/
+				for (int field = 2; field < Nvar; field++) {
+					FetchBoundaryEdgeFacialValue(BotBEfm + (field + 2)*BotBENe*BotBENfp + face * BotBENfp, \
+						fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
+						BotBEFToE + 2 * face, BotBEFToN1 + BotBENfp * face, Np, BotBENfp);
+				}
+
+				EvaluateHorizontalFaceSurfFlux(BotBEFluxM + face * BotBENfp, BotBEfm + face * BotBENfp, BotBEnz + face * BotBENfp, Hcrit, BotBENfp, Nvar, BotBENe);
 			}
-
-			EvaluateHorizontalFaceSurfFlux(BotBEFluxM + face * BotBENfp, BotBEfm + face * BotBENfp, BotBEnz + face * BotBENfp, Hcrit, BotBENfp, Nvar, BotBENe);
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -368,13 +382,15 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
 	for (int face = 0; face < BotBENe; face++){
 		int adjacentE = (int)BotBEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			for (int field = 0; field < Nvar; field++) {
-				StrongFormBoundaryEdgeRHS(face, BotBEFToE, BotBEFToF, Np, K, BotBENfp, BotBEFToN1, BotBEFluxM + field * BotBENe*BotBENfp, BotBEFluxS + field * BotBENe*BotBENfp, BotBEJs, BotBEMb, ERHS + field * Np*K*Nface);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				for (int field = 0; field < Nvar; field++) {
+					StrongFormBoundaryEdgeRHS(face, BotBEFToE, BotBEFToF, Np, K, BotBENfp, BotBEFToN1, BotBEFluxM + field * BotBENe*BotBENfp, BotBEFluxS + field * BotBENe*BotBENfp, BotBEJs, BotBEMb, ERHS + field * Np*K*Nface);
+				}
 			}
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 	/*************************************************************************************************************************************/
@@ -397,24 +413,26 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
 	for (int face = 0; face < SurfBENe; face++){
 		int adjacentE = (int)SurfBEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			FetchBoundaryEdgeFacialValue(huM + face * SurfBENfp, hu, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
-			FetchBoundaryEdgeFacialValue(hvM + face * SurfBENfp, hv, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
-			FetchBoundaryEdgeFacialValue(omegaM + face * SurfBENfp, omega, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
-			FetchBoundaryEdgeFacialValue(hM + face * SurfBENfp, h, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				FetchBoundaryEdgeFacialValue(huM + face * SurfBENfp, hu, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
+				FetchBoundaryEdgeFacialValue(hvM + face * SurfBENfp, hv, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
+				FetchBoundaryEdgeFacialValue(omegaM + face * SurfBENfp, omega, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
+				FetchBoundaryEdgeFacialValue(hM + face * SurfBENfp, h, SurfBEFToE + 2 * face, SurfBEFToN1 + face * SurfBENfp, Np, SurfBENfp);
 
-			/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included
-			2 stands for the memory occupied by water depth h and omega*/
-			for (int field = 2; field < Nvar; field++) {
-				FetchBoundaryEdgeFacialValue(SurfBEfm + (field + 2)*SurfBENe*SurfBENfp + face * SurfBENfp, \
-					fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
-					SurfBEFToE + 2 * face, SurfBEFToN1 + SurfBENfp * face, Np, SurfBENfp);
+				/*The following part is used to fetch the field corresponding to temperature, salinity, and sediment if they are included
+				2 stands for the memory occupied by water depth h and omega*/
+				for (int field = 2; field < Nvar; field++) {
+					FetchBoundaryEdgeFacialValue(SurfBEfm + (field + 2)*SurfBENe*SurfBENfp + face * SurfBENfp, \
+						fphys + ((int)varFieldIndex[field] - 1)*Np*K, \
+						SurfBEFToE + 2 * face, SurfBEFToN1 + SurfBENfp * face, Np, SurfBENfp);
+				}
+
+				EvaluateHorizontalFaceSurfFlux(SurfBEFluxM + face * SurfBENfp, SurfBEfm + face * SurfBENfp, SurfBEnz + face * SurfBENfp, Hcrit, SurfBENfp, Nvar, SurfBENe);
 			}
-
-			EvaluateHorizontalFaceSurfFlux(SurfBEFluxM + face * SurfBENfp, SurfBEfm + face * SurfBENfp, SurfBEnz + face * SurfBENfp, Hcrit, SurfBENfp, Nvar, SurfBENe);
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -423,13 +441,15 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #endif
     for (int face = 0; face < SurfBENe; face++){
 		int adjacentE = (int)SurfBEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			for (int field = 0; field < Nvar; field++) {
-				StrongFormBoundaryEdgeRHS(face, SurfBEFToE, SurfBEFToF, Np, K, SurfBENfp, SurfBEFToN1, SurfBEFluxM + field * SurfBENe*SurfBENfp, SurfBEFluxS + field * SurfBENe*SurfBENfp, SurfBEJs, SurfBEMb, ERHS + field * Np*K*Nface);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				for (int field = 0; field < Nvar; field++) {
+					StrongFormBoundaryEdgeRHS(face, SurfBEFToE, SurfBEFToF, Np, K, SurfBENfp, SurfBEFToN1, SurfBEFluxM + field * SurfBENe*SurfBENfp, SurfBEFluxS + field * SurfBENe*SurfBENfp, SurfBEJs, SurfBEMb, ERHS + field * Np*K*Nface);
+				}
 			}
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
     
@@ -437,11 +457,13 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
     for (int k=0; k < K; k++){
-        for(int field=0;field<Nvar;field++){
-            for(int face=1;face<Nface;face++){
-                Add( ERHS + field*Np*K*Nface+k*Np, ERHS + field*Np*K*Nface + k*Np, ERHS + field*Np*K*Nface + face*Np*K + k*Np, Np);
-            }
-        }
+		if (MyID == pE3d[k]) {
+			for (int field = 0; field < Nvar; field++) {
+				for (int face = 1; face < Nface; face++) {
+					Add(ERHS + field * Np*K*Nface + k * Np, ERHS + field * Np*K*Nface + k * Np, ERHS + field * Np*K*Nface + face * Np*K + k * Np, Np);
+				}
+			}
+		}
     }    
     
 
@@ -449,9 +471,11 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		for (int field = 0; field < Nvar; field++){
-			MultiEdgeContributionByLiftOperator(ERHS + field*Np*K*Nface + k*Np, TempFacialIntegral + field*Np*K + k*Np, &np, &oneI, &np, \
-				&one, invM, &np, &np, &zero, &np, J + k*Np, Np);
+		if (MyID == pE3d[k]) {
+			for (int field = 0; field < Nvar; field++) {
+				MultiEdgeContributionByLiftOperator(ERHS + field * Np*K*Nface + k * Np, TempFacialIntegral + field * Np*K + k * Np, &np, &oneI, &np, \
+					&one, invM, &np, &np, &zero, &np, J + k * Np, Np);
+			}
 		}
 	}
 
@@ -462,35 +486,26 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++){
-		if ((NdgRegionType)Status3d[k] == NdgRegionDry) {
-			continue;
-		}
-		else if ((NdgRegionType)Status3d[k] == NdgRegionPartialWetFlood) {
-			int WDflag = 0;
-			EvaluatePrebalanceVolumeTerm(E + k * Np, G + k * Np, H + k * Np, fphys + k * Np, \
-				varFieldIndex, Nvar, &no_gra, Np, K, Hcrit);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionDry) {
+				continue;
+			}
+			else if ((NdgRegionType)Status3d[k] == NdgRegionPartialWetFlood) {
+				EvaluatePrebalanceVolumeTerm(E + k * Np, G + k * Np, H + k * Np, fphys + k * Np, \
+					varFieldIndex, Nvar, &no_gra, Np, K, Hcrit);
 
-			GetVolumnIntegral3d(OutputRHS + k * Np, TempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, Dt, E + k * Np, G + k * Np, H + k * Np, &np, &np, &zero, \
-				&np, rx + k * Np, sx + k * Np, ry + k * Np, sy + k * Np, tz + k * Np, Nvar, Np, K, WDflag);
-		}
-		else if ((NdgRegionType)Status3d[k] == NdgRegionPartialWetDamBreak) {
-			int WDflag = 0;
-			EvaluatePrebalanceVolumeTerm(E + k * Np, G + k * Np, H + k * Np, fphys + k * Np, \
-				varFieldIndex, Nvar, &gra, Np, K, Hcrit);
+				GetVolumnIntegral3d(OutputRHS + k * Np, TempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
+					Dr, Ds, Dt, E + k * Np, G + k * Np, H + k * Np, &np, &np, &zero, \
+					&np, rx + k * Np, sx + k * Np, ry + k * Np, sy + k * Np, tz + k * Np, Nvar, Np, K);
+			}
+			else { //DamBreak or wet
+				EvaluatePrebalanceVolumeTerm(E + k * Np, G + k * Np, H + k * Np, fphys + k * Np, \
+					varFieldIndex, Nvar, &gra, Np, K, Hcrit);
 
-			GetVolumnIntegral3d(OutputRHS + k * Np, TempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, Dt, E + k * Np, G + k * Np, H + k * Np, &np, &np, &zero, \
-				&np, rx + k * Np, sx + k * Np, ry + k * Np, sy + k * Np, tz + k * Np, Nvar, Np, K, WDflag);
-		}
-		else {
-			int WDflag = 1;
-			EvaluatePrebalanceVolumeTerm(E + k * Np, G + k * Np, H + k * Np, fphys + k * Np, \
-				varFieldIndex, Nvar, &gra, Np, K, Hcrit);
-
-			GetVolumnIntegral3d(OutputRHS + k * Np, TempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, Dt, E + k * Np, G + k * Np, H + k * Np, &np, &np, &zero, \
-				&np, rx + k * Np, sx + k * Np, ry + k * Np, sy + k * Np, tz + k * Np, Nvar, Np, K, WDflag);
+				GetVolumnIntegral3d(OutputRHS + k * Np, TempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
+					Dr, Ds, Dt, E + k * Np, G + k * Np, H + k * Np, &np, &np, &zero, \
+					&np, rx + k * Np, sx + k * Np, ry + k * Np, sy + k * Np, tz + k * Np, Nvar, Np, K);
+			}
 		}
 	}
 
@@ -499,9 +514,11 @@ void NdgQuadFreeStrongFormAdvSolver3d::evaluateAdvectionRHS(double *fphys_, doub
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++){
-		for (int n = 0; n < Nvar; n++){
-			Minus(OutputRHS + n*Np*K + k*Np, \
-				ERHS + n*Np*K*Nface + k*Np, OutputRHS + n*Np*K + k*Np, Np);
+		if (MyID == pE3d[k]) {
+			for (int n = 0; n < Nvar; n++) {
+				Minus(OutputRHS + n * Np*K + k * Np, \
+					ERHS + n * Np*K*Nface + k * Np, OutputRHS + n * Np*K + k * Np, Np);
+			}
 		}
 	}
 

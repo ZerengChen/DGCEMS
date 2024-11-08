@@ -16,6 +16,14 @@ void DiagMultiply(double *, const double *, const double *, int );
 
 void DiagRightMultiply(double *, const double *, const double *, int );
 
+void Exchange(double *fphys, double *IEFToE, int *pE, int IENe, int Np, int K, int Nfield);//For MPI exchange
+
+void Exchange(signed char *Status, double *IEFToE, int *pE, int IENe, int Np, int K, int Nfield);//For MPI exchange
+
+void GatherToZero(double *fphys, int *pE, int Np, int K, int Nfield);//For MPI exchange
+
+void BroadcastToAll(double *fphys, int *pE, int Np, int K, int Nfield);//For MPI exchange
+
 void Add(double *, double *, double *, int );
 
 void AddByConstant(double *, double *, double, int);
@@ -77,7 +85,7 @@ void GetVolumnIntegralOnlyVertical(double *, int *, int *, int *, double *, \
 
 void GetVolumnIntegral3d(double *, double *, int *, int *, int *, double *, \
 	double *, double *, double *, double *, double *, double *, int *, int *, double *, int *, \
-	double *, double *, double *, double *, double *, int , int , int , int);
+	double *, double *, double *, double *, double *, int , int , int );
 
 void GetFacialFluxTerm2d(double *, double *, double *, double *, double *, int);
 

@@ -12,7 +12,7 @@ public:
 	SWETopographySourceTerm3d();
 	~SWETopographySourceTerm3d();
 
-	void EvaluateTopographySourceTerm(double *fphys, double *frhs);
+	void EvaluateTopographySourceTerm(double *fphys, double *frhs,int*pE3d,int MyID);
 
 	typedef enum {
 		NdgRegionNormal = 1,

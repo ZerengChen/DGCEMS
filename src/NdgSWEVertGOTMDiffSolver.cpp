@@ -19,7 +19,7 @@ extern double WindTauyC;
 extern int Switch_GOTM;
 extern signed char *Status3d;
 
-void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_, double *time_, double *fphys2d, double ImplicitA_, int *varIndex)
+void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_, double *time_, double *fphys2d, double ImplicitA_, int *varIndex,int*pE2d,int*pE3d,int MyID)
 {
 	int K2d = *(meshunion->mesh2d_p->K2d);
 	int Np2d = *(meshunion->mesh2d_p->mesh2dcell_p->Np2d);
@@ -49,19 +49,21 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 	memset(Hhuv2d, 0, sizeof(double)*(Np2d * K2d * 3));
 
 	if ((int)Switch_GOTM == 1) {
-		UpdateEddyViscosity(fphys_, ImplicitA_, fphys2d, Np2d, K2d, Np3d, K3d, nlev, VCV, BBE, SBE, Hhuv2d, NLayer);
+		UpdateEddyViscosity(fphys_, ImplicitA_, fphys2d, Np2d, K2d, Np3d, K3d, nlev, VCV, BBE, SBE, Hhuv2d, NLayer, pE2d, pE3d, MyID);
 
 #ifdef _BAROCLINIC
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			for (int n = 0; n < Np2d; n++) {
-				BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+			if (MyID == pE2d[k]) {
+				for (int n = 0; n < Np2d; n++) {
+					BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
 
-				SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+				}
 			}
 		}
 #endif
@@ -70,15 +72,17 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K3d; k++) {
-			if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = 0.0;
+			if (MyID == pE3d[k]) {
+				if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = 0.0;
+					}
 				}
-			}
-			else {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = nv_v[k * Np3d + n] / h[k * Np3d + n] / h[k * Np3d + n];
-					//nv_v[k * Np3d + n] = 0.0001 / h[k * Np3d + n] / h[k * Np3d + n];// For SaltyWater Case
+				else {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = nv_v[k * Np3d + n] / h[k * Np3d + n] / h[k * Np3d + n];
+						//nv_v[k * Np3d + n] = 0.0001 / h[k * Np3d + n] / h[k * Np3d + n];// For SaltyWater Case
+					}
 				}
 			}
 		}
@@ -88,13 +92,15 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
-				continue;
-			}
-			else {
-				MatrixMultiply(VCV, fphys_ + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hu
-				MatrixMultiply(VCV, fphys_ + K3d * Np3d + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hv
-				MatrixMultiply(VCV, fphys_ + K3d * Np3d * 3 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d * 2 + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom h
+			if (MyID == pE2d[k]) {
+				if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
+					continue;
+				}
+				else {
+					MatrixMultiply(VCV, fphys_ + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hu
+					MatrixMultiply(VCV, fphys_ + K3d * Np3d + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hv
+					MatrixMultiply(VCV, fphys_ + K3d * Np3d * 3 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d * 2 + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom h
+				}
 			}
 		}
 
@@ -102,30 +108,32 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			for (int n = 0; n < Np2d; n++) {
-				if (Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] > Hcrit) {
-					BBE[k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
-						pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
-						Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
-					BBE[K2d * Np2d + k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
-						pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
-						Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+			if (MyID == pE2d[k]) {
+				for (int n = 0; n < Np2d; n++) {
+					if (Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] > Hcrit) {
+						BBE[k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
+							pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
+							Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+						BBE[K2d * Np2d + k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
+							pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
+							Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
 
-					////--------------For wind driven flow
-					//BBE[k * Np2d + n] = cf * Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
-					//BBE[K2d * Np2d + k * Np2d + n] = 0.0;//cf * Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
-					////--------------For wind driven flow
+						////--------------For wind driven flow
+						//BBE[k * Np2d + n] = cf * Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+						//BBE[K2d * Np2d + k * Np2d + n] = 0.0;//cf * Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+						////--------------For wind driven flow
 
-					SBE[k * Np2d + n] = WindTauxC;
-					SBE[K2d * Np2d + k * Np2d + n] = WindTauyC;
+						SBE[k * Np2d + n] = WindTauxC;
+						SBE[K2d * Np2d + k * Np2d + n] = WindTauyC;
+					}
+					else {
+						BBE[k * Np2d + n] = 0.0;
+						BBE[K2d * Np2d + k * Np2d + n] = 0.0;
+						SBE[k * Np2d + n] = 0.0;
+						SBE[K2d * Np2d + k * Np2d + n] = 0.0;
+					}
+
 				}
-				else {
-					BBE[k * Np2d + n] = 0.0;
-					BBE[K2d * Np2d + k * Np2d + n] = 0.0;
-					SBE[k * Np2d + n] = 0.0;
-					SBE[K2d * Np2d + k * Np2d + n] = 0.0;
-				}
-
 			}
 		}
 
@@ -134,13 +142,15 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			for (int n = 0; n < Np2d; n++) {
-				BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+			if (MyID == pE2d[k]) {
+				for (int n = 0; n < Np2d; n++) {
+					BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
 
-				SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
-			}
+					SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+				}
+	        }
 		}
 #endif
 
@@ -148,14 +158,16 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K3d; k++) {
-			if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = 0.0;
+			if (MyID == pE3d[k]) {
+				if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = 0.0;
+					}
 				}
-			}
-			else {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = nv_con / h[k * Np3d + n] / h[k * Np3d + n];
+				else {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = nv_con / h[k * Np3d + n] / h[k * Np3d + n];
+					}
 				}
 			}
 		}
@@ -165,11 +177,12 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS(double *fphys_, double *frhs_
 		std::cout << "Warning! The turbulent model is undefined, please check." << std::endl;
 	}
 
-	updateimplicitrhs.EvaluateupdateimplicitRHS(fphys_, nv_v, frhs_, ImplicitA_, BBE, SBE, varIndex);
+
+	updateimplicitrhs.EvaluateupdateimplicitRHS(fphys_, nv_v, frhs_, ImplicitA_, BBE, SBE, varIndex, pE2d, pE3d, MyID);
 
 }
 
-void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *frhs_, double *time_, double *fphys2d, double ImplicitA_, double *UBOT, double *TMBOT, int *varIndex)
+void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *frhs_, double *time_, double *fphys2d, double ImplicitA_, double *UBOT, double *TMBOT, int *varIndex, int*pE2d, int*pE3d, int MyID)
 {
 	int K2d = *(meshunion->mesh2d_p->K2d);
 	int Np2d = *(meshunion->mesh2d_p->mesh2dcell_p->Np2d);
@@ -199,19 +212,21 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *fr
 	memset(Hhuv2d, 0, sizeof(double)*(Np2d * K2d * 3));
 
 	if ((int)Switch_GOTM == 1) {
-		UpdateEddyViscosity_CW(fphys_, ImplicitA_, fphys2d, Np2d, K2d, Np3d, K3d, nlev, VCV, BBE, SBE, Hhuv2d, NLayer, UBOT, TMBOT);
+		UpdateEddyViscosity_CW(fphys_, ImplicitA_, fphys2d, Np2d, K2d, Np3d, K3d, nlev, VCV, BBE, SBE, Hhuv2d, NLayer, UBOT, TMBOT, pE2d, pE3d, MyID);
 
 #ifdef _BAROCLINIC
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			for (int n = 0; n < Np2d; n++) {
-				BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+			if (MyID == pE2d[k]) {
+				for (int n = 0; n < Np2d; n++) {
+					BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
 
-				SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+				}
 			}
 		}
 #endif
@@ -220,14 +235,16 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *fr
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K3d; k++) {
-			if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = 0.0;
+			if (MyID == pE3d[k]) {
+				if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = 0.0;
+					}
 				}
-			}
-			else {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = nv_v[k * Np3d + n] / h[k * Np3d + n] / h[k * Np3d + n];
+				else {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = nv_v[k * Np3d + n] / h[k * Np3d + n] / h[k * Np3d + n];
+					}
 				}
 			}
 		}
@@ -237,13 +254,15 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *fr
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
-				continue;
-			}
-			else {
-				MatrixMultiply(VCV, fphys_ + K3d * Np3d * 9 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hu
-				MatrixMultiply(VCV, fphys_ + K3d * Np3d * 10+ k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hv
-				MatrixMultiply(VCV, fphys_ + K3d * Np3d * 3 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d * 2 + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom h
+			if (MyID == pE2d[k]) {
+				if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
+					continue;
+				}
+				else {
+					MatrixMultiply(VCV, fphys_ + K3d * Np3d * 9 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hu
+					MatrixMultiply(VCV, fphys_ + K3d * Np3d * 10 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom hv
+					MatrixMultiply(VCV, fphys_ + K3d * Np3d * 3 + k * NLayer*Np3d + (NLayer - 1) * Np3d, Hhuv2d + K2d * Np2d * 2 + k * Np2d, Np2d, oneI, Np3d, 1.0);//bottom h
+				}
 			}
 		}
 
@@ -251,30 +270,32 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *fr
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			for (int n = 0; n < Np2d; n++) {
-				//if (Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] > Hcrit) {
-					BBE[k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
-						pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
-						Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
-					BBE[K2d * Np2d + k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
-						pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
-						Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+			if (MyID == pE2d[k]) {
+				for (int n = 0; n < Np2d; n++) {
+					if (Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] > Hcrit) {
+						BBE[k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
+							pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
+							Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+						BBE[K2d * Np2d + k * Np2d + n] = cf * sqrt(pow(Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2) + \
+							pow(Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n], 2)) * \
+							Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
 
-					////--------------For wind driven flow
-					//BBE[k * Np2d + n] = cf * Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
-					//BBE[K2d * Np2d + k * Np2d + n] = 0.0;//cf * Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
-					////--------------For wind driven flow
+						////--------------For wind driven flow
+						//BBE[k * Np2d + n] = cf * Hhuv2d[k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+						//BBE[K2d * Np2d + k * Np2d + n] = 0.0;//cf * Hhuv2d[K2d * Np2d + k * Np2d + n] / Hhuv2d[K2d * Np2d * 2 + k * Np2d + n] * (-1);
+						////--------------For wind driven flow
 
-					SBE[k * Np2d + n] = WindTauxC;
-					SBE[K2d * Np2d + k * Np2d + n] = WindTauyC;
-				//}
-				//else {
-				//	BBE[k * Np2d + n] = 0.0;
-				//	BBE[K2d * Np2d + k * Np2d + n] = 0.0;
-				//	SBE[k * Np2d + n] = 0.0;
-				//	SBE[K2d * Np2d + k * Np2d + n] = 0.0;
-				//}
+						SBE[k * Np2d + n] = WindTauxC;
+						SBE[K2d * Np2d + k * Np2d + n] = WindTauyC;
+					}
+					else {
+						BBE[k * Np2d + n] = 0.0;
+						BBE[K2d * Np2d + k * Np2d + n] = 0.0;
+						SBE[k * Np2d + n] = 0.0;
+						SBE[K2d * Np2d + k * Np2d + n] = 0.0;
+					}
 
+				}
 			}
 		}
 
@@ -283,12 +304,14 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *fr
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K2d; k++) {
-			for (int n = 0; n < Np2d; n++) {
-				BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+			if (MyID == pE2d[k]) {
+				for (int n = 0; n < Np2d; n++) {
+					BBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					BBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
 
-				SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
-				SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 2 + k * Np2d + n] = 0.0;
+					SBE[K2d * Np2d * 3 + k * Np2d + n] = 0.0;
+				}
 			}
 		}
 #endif
@@ -297,24 +320,25 @@ void NdgSWEVertGOTMDiffSolver::EvaluateVertDiffRHS_CW(double *fphys_, double *fr
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < K3d; k++) {
-			if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = 0.0;
+			if (MyID == pE3d[k]) {
+				if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = 0.0;
+					}
 				}
-			}
-			else {
-				for (int n = 0; n < Np3d; n++) {
-					nv_v[k * Np3d + n] = nv_con / h[k * Np3d + n] / h[k * Np3d + n];
+				else {
+					for (int n = 0; n < Np3d; n++) {
+						nv_v[k * Np3d + n] = nv_con / h[k * Np3d + n] / h[k * Np3d + n];
+					}
 				}
 			}
 		}
-
 
 	}
 	else {
 		std::cout << "Warning! The turbulent model is undefined, please check." << std::endl;
 	}
 
-	updateimplicitrhs.EvaluateupdateimplicitRHS(fphys_, nv_v, frhs_, ImplicitA_, BBE, SBE, varIndex);
+	updateimplicitrhs.EvaluateupdateimplicitRHS(fphys_, nv_v, frhs_, ImplicitA_, BBE, SBE, varIndex, pE2d, pE3d, MyID);
 
 }

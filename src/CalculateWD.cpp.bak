@@ -1,0 +1,715 @@
+#include "NdgMath.h"
+#include "CalculateWD.h"
+#include <stdbool.h>
+#include <stdlib.h>
+#include <omp.h>
+#include "cblas.h"
+
+extern int Nvar;
+extern double Hcrit;
+extern signed char *Status3d;
+#define EPSILON 1.0e-12
+#define INF 10.0e5
+//extern double *h_mean, *hu_mean, *hv_mean;
+
+void WD_Restruction(double *h2d, double *hu2d, double *hv2d, int Np2d, int k) {
+	double *wq2d = meshunion->mesh2d_p->mesh2dcell_p->wq2d;
+	double *Jacobian2d = meshunion->mesh2d_p->J2d;
+	double *Vq2d = meshunion->mesh2d_p->mesh2dcell_p->Vq2d;
+	int *Nq2d = meshunion->mesh2d_p->mesh2dcell_p->Nq2d;
+	double *LAV2d = meshunion->mesh2d_p->LAV2d;
+
+	int oneI = 1;
+	double _h_mean = 0.0;
+	double _hu_mean = 0.0;
+	double _hv_mean = 0.0;
+	double h_min = h2d[0];
+	double theta = 1.0; // A parameter to keep positive
+
+	// Get the average h2d of an element 
+	GetMeshAverageValue(&_h_mean, LAV2d + k, Nq2d, &oneI, &Np2d, Vq2d, h2d + k * Np2d, Jacobian2d + k * Np2d, Nq2d, wq2d);
+	GetMeshAverageValue(&_hu_mean, LAV2d + k, Nq2d, &oneI, &Np2d, Vq2d, hu2d + k * Np2d, Jacobian2d + k * Np2d, Nq2d, wq2d);
+	GetMeshAverageValue(&_hv_mean, LAV2d + k, Nq2d, &oneI, &Np2d, Vq2d, hv2d + k * Np2d, Jacobian2d + k * Np2d, Nq2d, wq2d);
+
+	// Calculate theta and restruct the h2d, hu2d, hv2d
+	/* i 由于初始化，从1开始 */
+	for (int i = 1; i < Np2d; i++) {
+		h_min = fmin(h_min, h2d[i]);
+		//h_max = max(h_max, h2d[i]);
+	}
+	/* 单元平均水深大于阈值水深（还是0?）则theta有值，否则theta = 1.0 */
+	if (_h_mean > Hcrit) {
+		//theta = fmin(_h_mean / (h_max - _h_mean + ksi), theta);
+		theta = fmin(_h_mean / (_h_mean - h_min + EPSILON), 1.0);//ksi must be added
+		theta = fmax(0.0, theta);
+
+		for (int n = 0; n < Np2d; n++) {
+			h2d[n] = _h_mean + theta * (h2d[n] - _h_mean);
+			hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
+			hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
+
+			if (h2d[n] <= Hcrit) {
+				hu2d[n] = 0.0;
+				hv2d[n] = 0.0;
+			}
+		}
+	}
+	else {
+		for (int n = 0; n < Np2d; n++) {
+			if (h2d[n] < 0.0) {
+				h2d[n] = 0.0;
+			}
+
+			hu2d[n] = 0.0;
+			hv2d[n] = 0.0;
+		}
+	}
+}
+
+void JudgingNodeAndElementWD_again(double *source_h2d, double *source_hu2d, double *source_hv2d, double *source_z, \
+	double *hu3d, double *hv3d, double *h3d, double *Limited_huhv2D,signed char *dest, int Np2d, int K2d, int Np3d, int NLayer, int k) {
+	//Define some initial value
+	int _Nz = *(meshunion->cell_p->Nz) + 1;
+	int wetNodeNum = 0; // The total number of wet nodes in an element
+	NdgRegionType type = NdgRegionWet; // initialize the element statu to wet element
+	double b_max = source_z[0]; // the initial maximal bottom elevation
+	double zeta_max = source_z[0] + source_h2d[0]; // the initial maximal water elevation
+
+	//Judge WD of Nodes in an element
+	for (int n = 0; n < Np2d; n++) {
+		if (source_h2d[n] > Hcrit) { // wet nodes
+			wetNodeNum += 1;
+		}
+		else {
+			continue;
+		}
+	}
+
+	//Judge WD of the element and update the WD statu in cellType
+	if (wetNodeNum == 0) { // dry element
+		type = NdgRegionDry;
+		//Correct the h, hu2d, hv2d to zero
+		for (int n1 = 0; n1 < Np2d; n1++) {
+			if (source_h2d[n1] < 0.0) {
+				source_h2d[n1] = 0.0;
+			}
+			source_hu2d[n1] = 0.0;
+			source_hv2d[n1] = 0.0;
+		}
+		//Correct the h3d, hu3d, hv3d to zero
+		for (int i = 0; i < NLayer; i++) {
+			for (int j = 0; j < _Nz; j++) {
+				for (int n = 0; n < Np2d; n++) {
+					h3d[Np3d * i + Np2d * j + n] = source_h2d[n];
+					hu3d[Np3d * i + Np2d * j + n] = source_hu2d[n];//0
+					hv3d[Np3d * i + Np2d * j + n] = source_hv2d[n];//0
+				}
+			}
+		}
+	}
+	else if (wetNodeNum < Np2d) { // partial wet element
+		/***  Restructing the element  ***/
+		/* 1. Calculate h_mean, hu_mean, hv_mean of the partial WD element.*/
+		/* 2. Calculate theta.*/
+		/* 3. Restruct h2d,hu2d and hv2d.*/
+		WDelementRestructing(source_h2d, source_hu2d, source_hv2d, Np3d, NLayer, Np2d, K2d, k, type);
+
+		if (type == NdgRegionPartialWet) {
+			/****** A refined version to judge the flood and dambreak ******/
+			for (int n = 0; n < Np2d; n++) {
+				b_max = fmax(source_z[n], b_max); // find the maximal bottom elevation
+				zeta_max = fmax((source_z[n] + source_h2d[n]), zeta_max);// find the maximal water elevation
+			}
+			//For Flooding, the maximal bottom elevation is higher than the maximal water elevation
+			if (b_max + Hcrit > zeta_max) {
+				type = NdgRegionPartialWetFlood;
+				//type = NdgRegionDry;
+			}
+			//For dambreak, the maximal bottom elevation is lower than the maximal water elevation
+			else {
+				type = NdgRegionPartialWetDamBreak;
+				//type = NdgRegionDry;
+			}
+		}
+
+		/* 4. Extend to 3d variables.*/
+		for (int i = 0; i < NLayer; i++) {
+			for (int j = 0; j < _Nz; j++) {
+				for (int n = 0; n < Np2d; n++) {
+					h3d[Np3d * i + Np2d * j + n] = source_h2d[n];
+
+					//if (source_h2d[n] > Hcrit) {
+					//	hu3d[Np3d * i + Np2d * j + n] = hu3d[Np3d * i + Np2d * j + n] + source_hu2d[n] - Limited_huhv2D[n];
+					//	hv3d[Np3d * i + Np2d * j + n] = hv3d[Np3d * i + Np2d * j + n] + source_hv2d[n] - Limited_huhv2D[K2d * Np2d + n];
+					//}
+					//else {
+						hu3d[Np3d * i + Np2d * j + n] = source_hu2d[n];//0
+						hv3d[Np3d * i + Np2d * j + n] = source_hv2d[n];//0
+					//}
+				}
+			}
+		}
+
+        /****** ********************** END ********************** ******/		
+	}
+
+	*dest = (signed char)type;
+}
+
+/* The elementRestructing is just for partial WD elements. */
+void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int NLayer, int Np2d, int K2d, int k, NdgRegionType type2d_) {
+	double *wq2d = meshunion->mesh2d_p->mesh2dcell_p->wq2d;
+	double *Jacobian2d = meshunion->mesh2d_p->J2d;
+	double *Vq2d = meshunion->mesh2d_p->mesh2dcell_p->Vq2d;
+	int *Nq2d = meshunion->mesh2d_p->mesh2dcell_p->Nq2d;
+	double *LAV2d = meshunion->mesh2d_p->LAV2d;
+
+	int oneI = 1;
+	double _h_mean = 0.0;
+	double _hu_mean = 0.0;
+	double _hv_mean = 0.0;
+	double h_min = h2d[0];
+	//double h_max = h2d[0];
+	double theta = 1.0; // A parameter to keep positive
+
+	// Get the average h2d of an element 
+	GetMeshAverageValue(&_h_mean, LAV2d + k, Nq2d, &oneI, &Np2d, Vq2d, h2d + k * Np2d, Jacobian2d + k * Np2d, Nq2d, wq2d);
+	GetMeshAverageValue(&_hu_mean, LAV2d + k, Nq2d, &oneI, &Np2d, Vq2d, hu2d + k * Np2d, Jacobian2d + k * Np2d, Nq2d, wq2d);
+    GetMeshAverageValue(&_hv_mean, LAV2d + k, Nq2d, &oneI, &Np2d, Vq2d, hv2d + k * Np2d, Jacobian2d + k * Np2d, Nq2d, wq2d);
+
+	// Calculate theta and restruct the h2d, hu2d, hv2d
+	/* i 由于初始化，从1开始 */
+	for (int i = 1; i < Np2d; i++) {
+		h_min = fmin(h_min, h2d[i]);
+		//h_max = max(h_max, h2d[i]);
+	}
+	/* 单元平均水深大于阈值水深（还是0?）则theta有值，否则theta = 1.0 */
+	if (_h_mean > Hcrit) {
+		type2d_ = NdgRegionPartialWet;
+		//theta = fmin(_h_mean / (h_max - _h_mean + ksi), theta);
+		theta = fmin((_h_mean - Hcrit - EPSILON) / (_h_mean - h_min + EPSILON), 1.0);//ksi must be added,这里保证重构后每个节点都大于Hcrit
+		theta = fmax(0.0, theta);
+		
+		for (int n = 0; n < Np2d; n++) {
+			h2d[n] = _h_mean + theta * (h2d[n] - _h_mean);
+			//hu2d[n] = _hu_mean / _h_mean * h2d[n];
+			//hv2d[n] = _hv_mean / _h_mean * h2d[n];
+			//hu2d[n] = 0.0;
+			//hv2d[n] = 0.0;
+			hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
+			hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
+
+			if (h2d[n] <= Hcrit) {
+				hu2d[n] = 0.0;
+				hv2d[n] = 0.0;
+			}
+		}
+	}
+	else {
+		type2d_ = NdgRegionDry;
+		for (int n = 0; n < Np2d; n++) {
+			if (h2d[n] < Hcrit) {
+				h2d[n] = 0.0;
+			}
+
+			hu2d[n] = 0.0;
+			hv2d[n] = 0.0;
+		}
+	}
+
+}
+
+void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d,int*pE2d,int MyID) {
+	double *h2d = fphys2d_;
+	double *hu3d = fphys_;
+	double *hv3d = fphys_ + Np3d * K3d;
+	double *h3d = fphys_ + Np3d * K3d * 3;
+	int NLayer = *NLayer_;
+	signed char *cellType = status_;
+
+	/*Judge the WD status in each element. Firstly, confirm wet, dry and patial status.*/
+	/*** For partial WD elements, we must restruct the elements. ***/
+	/*Finally, confirm the patial status Flooding or Dambreaking.*/
+	//for (int k = 0; k < K2d; k++) {
+	//	JudgingNodeAndElementWD(h2d + k * Np2d, h2d + K2d * Np2d * 3 + k * Np2d, cellType + k, Np2d);
+	//}
+
+	//Limiter2d(fphys2d_);
+
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+	for (int k = 0; k < K2d; k++) {
+		if (MyID == pE2d[k]) {
+			JudgingNodeAndElementWD_again(h2d + k * Np2d, h2d + K2d * Np2d + k * Np2d, h2d + K2d * Np2d * 2 + k * Np2d, h2d + K2d * Np2d * 3 + k * Np2d, \
+				hu3d + k * Np3d * NLayer, hv3d + k * Np3d * NLayer, h3d + k * Np3d * NLayer, Limited_huhv2D + k * Np2d, cellType + k, Np2d, K2d, Np3d, NLayer, k);
+
+			for (int i = 0; i < NLayer; i++) {
+				Status3d[k * NLayer + i] = cellType[k];
+			}
+		}
+	}
+
+}
+
+
+/* ************** Part of two-dimensional Limiter ************** */
+void evaluateWenoLocalGrad(int Nsub,
+	double* subGfx,
+	double* subGfy,
+	double* subGraDet,
+	double* gfx,
+	double* gfy)
+{
+	double frac = 0.0;
+	double r = 2.0; // a positive number
+	*gfx = 0.0;
+	*gfy = 0.0;
+	for (int i = 0; i < Nsub; i++) {
+		double w = pow(sqrt(subGraDet[i]) + EPSILON, -r);
+		frac += w;
+		*gfx += w * subGfx[i];
+		*gfy += w * subGfy[i];
+		// if(k==29 | k==149)
+		//     mexPrintf("k=%d, w[%d]=%f\n", k, i, w);
+	}
+	*gfx /= frac;
+	*gfy /= frac;
+	// if(k==29 | k==149)
+	//     mexPrintf("k=%d, gx=%f, gy=%f\n", k, *gfx, *gfy);
+	// return;
+}
+
+/* the weights of van Albada limiter */
+void evaluateVALocalGrad(
+	int Nsub,
+	double *gra_x,
+	double *gra_y,
+	double *gra_det,
+	double *dhdx,
+	double *dhdy)
+{
+	double frac = Nsub * EPSILON;
+	int i, j;
+
+	for (*dhdx = 0.0, *dhdy = 0.0, i = 0; i < Nsub; i++) {
+		double w = 1.0;
+		for (j = 0; j < Nsub; j++) {
+			if (i == j) continue;
+			w = w * gra_det[j];
+		}
+		w += EPSILON;
+		frac += w;
+		*dhdx += w * gra_x[i];
+		*dhdy += w * gra_y[i];
+	}
+	*dhdx /= frac;
+	*dhdy /= frac;
+}
+
+/* weights of Hermite WENO limiter */
+void evaluateJKLocalGrad(int Nsub, double *gra_x, double *gra_y, double *gra_det,
+	double *dhdx, double *dhdy) {
+	double frac = Nsub * EPSILON;
+	int i, j;
+	for (i = 0; i < Nsub; i++) { frac += (pow(gra_det[i], (Nsub - 1.0)) + EPSILON); }
+
+	for (*dhdx = 0.0, *dhdy = 0.0, i = 0; i < Nsub; i++) {
+		double w = 1.0;
+		for (j = 0; j < Nsub; j++) {
+			if (i == j) continue;
+			w = w * gra_det[j];
+		}
+		w += EPSILON;
+		*dhdx += w * gra_x[i];
+		*dhdy += w * gra_y[i];
+	}
+	*dhdx /= frac;
+	*dhdy /= frac;
+}
+
+/**
+ * @brief
+ * Solve for equations with 2 unknows.
+ *
+ * @details
+ * Solve the equation of \f[A \cdot x = f \f],
+ * while the coefficient matrix A is
+ * \f[ A = \begin{bmatrix} a[0], & a[1] \cr a[2], & a[3] \end{bamtrix} \f].
+ *
+ * The equations is solved by multiply the inverse matrix
+ * \f[A^{-1} = \frac{1}{\left\| A \right\|}\begin{bmatrix} a[3], & -a[1] \cr
+ * -a[2], & a[0] \end{bamtrix}\f]
+ * to the rhs vector f, giving by
+ * \f[ x=A^{-1} \cdot f \f], while \f[ \left\| A \right\| = a[0]a[3] - a[1]a[2] \f$]
+ * is the norm of matrix.
+ *
+ * @param [in] a The coefficient matrix
+ * @param [in] f The RHS vector
+ * @param [out] x Solutions
+ */
+void MatrixSolver2(double* a, double* f, double* x)
+{
+
+	double det = a[0] * a[3] - a[1] * a[2];
+	x[0] = (f[0] * a[3] - f[1] * a[1]) / det;
+	x[1] = (-f[0] * a[2] + f[1] * a[0]) / det;
+	return;
+}
+
+void evaluateVertexWeightedGradient(int Nsub,
+	double* cellvx,
+	double* cellvy,
+	double* cellfv,
+	double xc,
+	double yc,
+	double fc,
+	double* gfx,
+	double* gfy)
+{
+
+	double *subGfx = (double*)malloc(sizeof(double)*Nsub);
+	double *subGfy = (double*)malloc(sizeof(double)*Nsub);
+	double *subGraDet = (double*)malloc(sizeof(double)*Nsub);
+
+	double a[4], x[2], f[2];
+	// double frac = Nsub*eps;
+	for (int n = 0; n < Nsub; n++) {
+		/* vertex index */
+		int l1 = n;
+		int l2 = (n + 1) % Nsub;
+		/* coefficient matrix and rhs */
+		a[0] = cellvx[l1] - xc;
+		a[1] = cellvy[l1] - yc;
+		a[2] = cellvx[l2] - xc;
+		a[3] = cellvy[l2] - yc;
+		f[0] = cellfv[l1] - fc;
+		f[1] = cellfv[l2] - fc;
+
+		/* get local gradient x=(dhdx, dhdy) of ith subdomain */
+		MatrixSolver2(a, f, x);
+		subGfx[n] = x[0];
+		subGfy[n] = x[1];
+		subGraDet[n] = x[0] * x[0] + x[1] * x[1];
+	}
+	evaluateWenoLocalGrad(Nsub, subGfx, subGfy, subGraDet, gfx, gfy);
+
+	free(subGfx); subGfx = NULL;
+	free(subGfy); subGfy = NULL;
+	free(subGraDet); subGraDet = NULL;
+	// if (k==29 | k==149){
+	//    for( int n = 0; n < Nsub; n++){
+	//         mexPrintf("k=%d, subGfx[%d]=%f, subGfy[%d]=%f\n", k, n, subGfx[n], n, subGfy[n]);
+	//     }
+	// }
+	return;
+}
+
+/**
+ * @brief Get interpolation node values from the gradient and cell averages.
+ *
+ * @param [in] Np Number of interpolations
+ * @param [in] fmean cell integral averaged value
+ * @param [in] xc,yc centre coordinate
+ * @param [in] x,y coordinate
+ * @param [in] gfx,gfy element gradient
+ * @param [out] fvar variable value on each nodes
+ *
+ */
+void projectGradToNodeValue(int Np,
+	double fmean,
+	double xc,
+	double yc,
+	double* x,
+	double* y,
+	double gfx,
+	double gfy,
+	double* fvar)
+{
+
+	for (int i = 0; i < Np; i++) {
+		double dx = x[i] - xc;
+		double dy = y[i] - yc;
+		fvar[i] = fmean + dx * gfx + dy * gfy;
+	}
+}
+
+void Limiter2d(double *fphys2d_, int fieldID, double *Limited_huhv2D)
+{
+	/* get dimensions and inputs */
+	int K = *meshunion->mesh2d_p->K2d;
+	int Np = *meshunion->mesh2d_p->mesh2dcell_p->Np2d;
+	int Nv_total = *meshunion->mesh2d_p->Nv2d;
+	int Nv = *meshunion->mesh2d_p->mesh2dcell_p->Nv2d;
+	int Nfp = *meshunion->mesh2d_p->mesh2dinneredge_p->Nfp2d;
+
+	double* x = meshunion->mesh2d_p->x2d;
+	double* y = meshunion->mesh2d_p->y2d;
+	double* xc = meshunion->mesh2d_p->xc2d;
+	double* yc = meshunion->mesh2d_p->yc2d;
+	double* vx = meshunion->mesh2d_p->vx2d;
+	double* vy = meshunion->mesh2d_p->vy2d;
+	double* EToV = meshunion->mesh2d_p->EToV2d;
+	double* Fmask = meshunion->mesh2d_p->mesh2dcell_p->Fmask2d;
+	signed char *status = meshunion->mesh2d_p->status;
+	double *wq2d = meshunion->mesh2d_p->mesh2dcell_p->wq2d;
+	double *Jacobian2d = meshunion->mesh2d_p->J2d;
+	double *Vq2d = meshunion->mesh2d_p->mesh2dcell_p->Vq2d;
+	int *Nq2d = meshunion->mesh2d_p->mesh2dcell_p->Nq2d;
+	double *LAV2d = meshunion->mesh2d_p->LAV2d;
+	int oneI = 1;
+
+	double* fvert = (double *)malloc(sizeof(double) * Nv_total * 3);
+	    memset(fvert, 0, Nv_total * sizeof(double) * 3);
+	double* fvmin = (double *)malloc(sizeof(double) * Nv_total * 3);
+	double* fvmax = (double *)malloc(sizeof(double) * Nv_total * 3);
+	double* cvar = (double *)malloc(sizeof(double) * K * 3);
+	double* Nvc = (double *)malloc(sizeof(double) * Nv_total);//save the number of element connecting to each vertex
+	    memset(Nvc, 0, Nv_total * sizeof(double));
+	double* v = (double *)malloc(sizeof(double) * Nv);
+	double* ind = (double *)malloc(sizeof(double) * Nv);
+	int Nvcmax = 0;
+
+	/* get fields which need to be limited */
+	double *fphys_1 = fphys2d_;//h2d
+	double *fphys_2 = fphys2d_ + Np * K;//hu2d
+	double *fphys_3 = fphys2d_ + 2 * Np * K;//hv2d
+	double *fphys_4 = fphys2d_ + 3 * Np * K;//z2d
+	double *fphys_5 = (double*)malloc(Np * K * sizeof(double));
+
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+	for (int k = 0; k < K; k++) {
+		for (int n = 0; n < Np; n++) {
+			fphys_5[k * Np + n] = fphys_1[k * Np + n] + fphys_4[k * Np + n];//use fphys_5 to save zeta2d
+	}
+}
+
+	/* Next, calculate the average value in each element */
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+	for (int k = 0; k < K; k++) {
+		GetMeshAverageValue(cvar + k, LAV2d + k, Nq2d, &oneI, &Np, Vq2d, fphys_5 + k * Np, Jacobian2d + k * Np, Nq2d, wq2d);//zeta_mean
+		GetMeshAverageValue(cvar + K + k, LAV2d + k, Nq2d, &oneI, &Np, Vq2d, fphys_2 + k * Np, Jacobian2d + k * Np, Nq2d, wq2d);//hu_mean
+		GetMeshAverageValue(cvar + K * 2 + k, LAV2d + k, Nq2d, &oneI, &Np, Vq2d, fphys_3 + k * Np, Jacobian2d + k * Np, Nq2d, wq2d);//hv_mean
+	}
+
+	for (int k = 0; k < K; k++) {
+		cblas_dcopy(Nv, EToV + k * Nv, 1, v, 1);
+		for (int i = 0; i < Nv; i++) {		
+			Nvc[(int)v[i] - 1] = Nvc[(int)v[i] - 1] + 1;//count the number of the element for each vertex
+		}
+	}
+
+	const int maxindex = cblas_idamax(Nv_total, Nvc, 1);//return the ID of ABS(max value of Nvc)
+	Nvcmax = (int)Nvc[maxindex];//save the value of the max Nvc, Nvcmax means the maximal element number where a vertex share, to applicate enough space
+	double* VToK = (double *)malloc(sizeof(double) * Nv_total * Nvcmax);//cell index containing each vertex
+	//double* VToM = (double *)malloc(sizeof(double) * Nv_total * Nvcmax);
+	double* VToW = (double *)malloc(sizeof(double) * Nv_total * Nvcmax);//reconstruction weights of each cell connecting to the vertex
+	double* w = (double *)malloc(sizeof(double) * Nv_total * Nvcmax);
+	    memset(Nvc, 0, Nv_total * sizeof(double));
+		memset(w, 0, Nv_total * Nvcmax * sizeof(double));
+	int cellid = 0;
+	//int meshid = 0;
+
+	/* Next, calculate the adjacent maximal and minimal value */
+	for (int k = 0; k < K; k++){
+		cblas_dcopy(Nv, EToV + k * Nv, 1, v, 1);
+		for (int n = 0; n < Nv; n++){		
+			ind[n] = Nvc[(int)v[n] - 1] + 1 + (v[n] - 1)*Nvcmax;//在第k个单元中，第n(1-3)个顶点赋予其存储编号为ind[n]
+			VToK[(int)ind[n] - 1] = k + 1;//在第k个单元中，VToK的第ind[n]位对应单元k的编号
+			//VToM[(int)ind[n] - 1] = 1;
+			Nvc[(int)v[n] - 1] = Nvc[(int)v[n] - 1] + 1;//此时，在第k个单元中，第n个顶点增加一个使用其顶点的单元
+		}
+
+	}
+
+	for (int n = 0; n < Nv_total; n++) 
+	{	
+		fvmax[n] = -INF;
+		fvmax[Nv_total + n] = -INF;
+		fvmax[Nv_total * 2 + n] = -INF;
+		fvmin[n] = INF;
+		fvmin[Nv_total + n] = INF;
+		fvmin[Nv_total * 2 + n] = INF;
+		for (int m = 0; m < (int)Nvc[n]; m++){//对于所有单元中编号的第n(1-Nv)个顶点,第m号位：
+			cellid = (int)VToK[n*Nvcmax + m] - 1;//这个顶点所在单元的编号-1
+			//meshid = (int)VToM[n*Nvcmax + m] - 1;
+			//计算在该顶点处，所有使用该顶点的单元对其的权重值：顶点至各单元中心的距离
+			w[n * Nvcmax + m] = 1.0 / (pow(vx[n] - xc[cellid], 2) + pow(vy[n] - yc[cellid], 2));
+		}
+
+		double sum = cblas_dasum((int)Nvc[n], w + n * Nvcmax, 1);//包含这个顶点所有单元的权重求和
+
+		for (int k = 0; k < (int)Nvc[n]; k++) {
+			VToW[n * Nvcmax + k] = w[n * Nvcmax + k] / sum;// omega1,2 and 3
+		}
+
+		for (int k = 0; k < (int)Nvc[n]; k++){		
+			
+			cellid = (int)VToK[n * Nvcmax + k] - 1;
+
+			fvert[n] += VToW[n * Nvcmax + k] * cvar[cellid];//单元权重*单元平均值求和，即为该顶点处的值(不同单元对应的该顶点都有不同的值)
+			fvert[Nv_total + n] += VToW[n * Nvcmax + k] * cvar[K + cellid];
+			fvert[Nv_total * 2 + n] += VToW[n * Nvcmax + k] * cvar[K * 2 + cellid];
+
+			fvmax[n] = fmax(fvmax[n], cvar[cellid]);//该顶点所在模板的最大平均值
+			fvmax[Nv_total + n] = fmax(fvmax[Nv_total + n], cvar[K + cellid]);
+			fvmax[Nv_total * 2 + n] = fmax(fvmax[Nv_total * 2 + n], cvar[K * 2 + cellid]);
+
+			fvmin[n] = fmin(fvmin[n], cvar[cellid]);//该顶点所在模板的最小平均值
+			fvmin[Nv_total + n] = fmin(fvmin[Nv_total + n], cvar[K + cellid]);
+			fvmin[Nv_total * 2 + n] = fmin(fvmin[Nv_total * 2 + n], cvar[K * 2 + cellid]);
+		}
+	}
+
+	/* Then, use the two-dimensional limiter to control the value of water elevation. */
+	double *cellvf = (double*)malloc(sizeof(double) * Nv);
+	double *cellvx = (double*)malloc(sizeof(double) * Nv);
+	double *cellvy = (double*)malloc(sizeof(double) * Nv);
+	double gfx, gfy;
+	int nodeId = 0;
+	int vertId = 0;
+
+	for (int k = 0; k < K; k++) { //For zeta
+		if ((status[k] != NdgRegionWet) && (status[k] != NdgRegionDry)) {
+			bool troubleCellFlag = 0;//需要斜率限制的时候为true
+			for (int n = 0; n < Nv; n++) {
+				nodeId = k * Np + (int)Fmask[n * Nfp] - 1;//在第k个单元中，顶点n对应的插值节点编号
+				vertId = (int)EToV[k * Nv + n] - 1;//在第k个单元中，顶点n的编号
+
+				cellvx[n] = vx[vertId];
+				cellvy[n] = vy[vertId];
+
+				cellvf[n] = fphys_5[nodeId];
+
+				if (cellvf[n] > fvmax[vertId]) {
+					troubleCellFlag = 1;
+					cellvf[n] = fvert[vertId];//如果在范围外，把顶点均值存入物理量中
+				}
+				else if (cellvf[n] < fvmin[vertId]) {
+					troubleCellFlag = 1;
+					cellvf[n] = fvert[vertId];//如果在范围外，把顶点均值存入物理量中
+				}
+			}
+			if (troubleCellFlag) {
+				evaluateVertexWeightedGradient(
+					Nv, cellvx, cellvy, cellvf, xc[k], yc[k], cvar[k], &gfx, &gfy);
+				projectGradToNodeValue(
+					Np, cvar[k], xc[k], yc[k],
+					x + k * Np, y + k * Np,
+					gfx, gfy, fphys_5 + k * Np);
+				// if( k==29 | k==149 )
+				//     mexPrintf("k=%d, fm=%f, gfx=%f, gfy=%f\n", k, fm, gfx, gfy);
+			}
+		}
+		else {
+			continue;
+		}
+	}
+
+	/* After modified the value of water elevation, updating the water depth. */
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+	for (int k = 0; k < K; k++) {	
+		if (status[k] == NdgRegionWet) {
+			for (int j = 0; j < Np; j++) {			
+				fphys_1[k * Np + j] = fphys_5[k * Np + j] - fphys_4[k * Np + j];
+			}
+		}
+	}
+
+	/* Considering that we don't need to control the hu2d and hv2d in a three-dimensional hydrodynamic model. */
+	if (fieldID == 3) {
+		for (int k = 0; k < K; k++) { // For hu2d
+			if ((status[k] != NdgRegionWet) && (status[k] != NdgRegionDry)) {
+				bool troubleCellFlag = 0;//需要斜率限制的时候为true
+				for (int n = 0; n < Nv; n++) {
+					nodeId = k * Np + (int)Fmask[n * Nfp] - 1;//在第k个单元中，顶点n对应的插值节点编号
+					vertId = (int)EToV[k * Nv + n] - 1;//在第k个单元中，顶点n的编号
+
+					cellvx[n] = vx[vertId];
+					cellvy[n] = vy[vertId];
+
+					cellvf[n] = fphys_2[nodeId];
+
+					if (cellvf[n] > fvmax[Nv_total + vertId]) {
+						troubleCellFlag = 1;
+						cellvf[n] = fvert[Nv_total + vertId];//如果在范围外，把顶点均值存入物理量中
+					}
+					else if (cellvf[n] < fvmin[Nv_total + vertId]) {
+						troubleCellFlag = 1;
+						cellvf[n] = fvert[Nv_total + vertId];//如果在范围外，把顶点均值存入物理量中
+					}
+				}
+				if (troubleCellFlag) {
+					evaluateVertexWeightedGradient(
+						Nv, cellvx, cellvy, cellvf, xc[k], yc[k], cvar[K + k], &gfx, &gfy);
+					projectGradToNodeValue(
+						Np, cvar[K + k], xc[k], yc[k],
+						x + k * Np, y + k * Np,
+						gfx, gfy, fphys_2 + k * Np);
+				}
+			}
+			else {
+				continue;
+			}
+		}
+
+		for (int k = 0; k < K; k++) { // For hv2d
+			if ((status[k] != NdgRegionWet) && (status[k] != NdgRegionDry)) {
+				bool troubleCellFlag = 0;//需要斜率限制的时候为true
+				for (int n = 0; n < Nv; n++) {
+					nodeId = k * Np + (int)Fmask[n * Nfp] - 1;//在第k个单元中，顶点n对应的插值节点编号
+					vertId = (int)EToV[k * Nv + n] - 1;//在第k个单元中，顶点n的编号
+
+					cellvx[n] = vx[vertId];
+					cellvy[n] = vy[vertId];
+
+					cellvf[n] = fphys_3[nodeId];
+
+					if (cellvf[n] > fvmax[Nv_total * 2 + vertId]) {
+						troubleCellFlag = 1;
+						cellvf[n] = fvert[Nv_total * 2 + vertId];//如果在范围外，把顶点均值存入物理量中
+					}
+					else if (cellvf[n] < fvmin[Nv_total * 2 + vertId]) {
+						troubleCellFlag = 1;
+						cellvf[n] = fvert[Nv_total * 2 + vertId];//如果在范围外，把顶点均值存入物理量中
+					}
+				}
+				if (troubleCellFlag) {
+					evaluateVertexWeightedGradient(
+						Nv, cellvx, cellvy, cellvf, xc[k], yc[k], cvar[K * 2 + k], &gfx, &gfy);
+					projectGradToNodeValue(
+						Np, cvar[K * 2 + k], xc[k], yc[k],
+						x + k * Np, y + k * Np,
+						gfx, gfy, fphys_3 + k * Np);
+				}
+			}
+			else {
+				continue;
+			}
+		}
+	}
+
+
+
+	free(fvert); fvert = NULL;
+	free(fvmin); fvmin = NULL;
+	free(fvmax); fvmax = NULL;
+	free(cvar); cvar = NULL;
+	free(Nvc); Nvc = NULL;
+	free(v); v = NULL;
+	free(ind); ind = NULL;
+	free(VToK); VToK = NULL;
+	//free(VToM); VToM = NULL;
+	free(VToW); VToW = NULL;
+	free(w); w = NULL;
+	free(cellvf); cellvf = NULL;
+	free(cellvx); cellvx = NULL;
+	free(cellvy); cellvy = NULL;
+	free(fphys_5); fphys_5 = NULL;
+}

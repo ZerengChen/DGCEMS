@@ -168,8 +168,8 @@ void NdgMemory::VertDiffMemoryAllocation(int Np2d, int K2d, int Nz, int Nvar){
 	SBE = (double *)malloc(sizeof(double)*(Np2d*K2d * Nvar));
 	MemoryAllocationCheck(SBE, sizeof(double)*(Np2d*K2d * Nvar));
 	memset(SBE, 0, sizeof(double)*(Np2d*K2d * Nvar));
-	Hhuv2d = (double *)malloc(sizeof(double)*Np2d*K2d*3);
-	MemoryAllocationCheck(Hhuv2d, sizeof(double)*(Np2d*K2d*3));
+	Hhuv2d = (double *)malloc(sizeof(double)*Np2d*K2d * 3);
+	MemoryAllocationCheck(Hhuv2d, sizeof(double)*(Np2d*K2d * 3));
 	//memset(Hhuv2d, 0, sizeof(double)*(Np2d*K2d * 3));
 	Eta2d = (double *)malloc(sizeof(double)*(Np2d*K2d));
 	MemoryAllocationCheck(Eta2d, sizeof(double)*(Np2d*K2d));

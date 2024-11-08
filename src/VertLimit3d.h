@@ -9,7 +9,7 @@
 extern MeshUnion mesh;
 extern const MeshUnion *meshunion;
 
-void Limiter3d(double *fphys);
+void Limiter3d(double *fphys,int*,int);
 
 #endif
 

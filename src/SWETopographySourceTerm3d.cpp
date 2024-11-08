@@ -15,7 +15,7 @@ SWETopographySourceTerm3d::~SWETopographySourceTerm3d()
 
 extern signed char *Status3d;
 
-void SWETopographySourceTerm3d::EvaluateTopographySourceTerm(double *fphys_, double *frhs_)
+void SWETopographySourceTerm3d::EvaluateTopographySourceTerm(double *fphys_, double *frhs_, int*pE3d, int MyID)
 {
 	int Np = *(meshunion->cell_p->Np);
 	int K = *(meshunion->K);
@@ -35,28 +35,30 @@ void SWETopographySourceTerm3d::EvaluateTopographySourceTerm(double *fphys_, dou
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			for (int n = 0; n < Np; n++) {
-				MRHS[k * Np + n] = -gra * eta_[k * Np + n] * bx[k * Np + n];
-				MRHS[K * Np + k * Np + n] = -gra * eta_[k * Np + n] * by[k * Np + n];
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				for (int n = 0; n < Np; n++) {
+					MRHS[k * Np + n] = -gra * eta_[k * Np + n] * bx[k * Np + n];
+					MRHS[K * Np + k * Np + n] = -gra * eta_[k * Np + n] * by[k * Np + n];
+				}
+				Add(OutputRHS + k * Np, MRHS + k * Np, OutputRHS + k * Np, Np);
+
+				Add(OutputRHS + Np * K + k * Np, MRHS + Np * K + k * Np, OutputRHS + Np * K + k * Np, Np);
 			}
-			Add(OutputRHS + k * Np, MRHS + k * Np, OutputRHS + k * Np, Np);
 
-			Add(OutputRHS + Np * K + k * Np, MRHS + Np * K + k * Np, OutputRHS + Np * K + k * Np, Np);			
-		}
+			else if ((NdgRegionType)Status3d[k] == NdgRegionPartialWetDamBreak) {
+				for (int n = 0; n < Np; n++) {
+					MRHS[k * Np + n] = -gra * eta_[k * Np + n] * bx[k * Np + n];
+					MRHS[K * Np + k * Np + n] = -gra * eta_[k * Np + n] * by[k * Np + n];
+				}
+				Add(OutputRHS + k * Np, MRHS + k * Np, OutputRHS + k * Np, Np);
 
-		else if ((NdgRegionType)Status3d[k] == NdgRegionPartialWetDamBreak) {
-			for (int n = 0; n < Np; n++) {
-				MRHS[k * Np + n] = -gra * eta_[k * Np + n] * bx[k * Np + n];
-				MRHS[K * Np + k * Np + n] = -gra * eta_[k * Np + n] * by[k * Np + n];
+				Add(OutputRHS + Np * K + k * Np, MRHS + Np * K + k * Np, OutputRHS + Np * K + k * Np, Np);
 			}
-			Add(OutputRHS + k * Np, MRHS + k * Np, OutputRHS + k * Np, Np);
 
-			Add(OutputRHS + Np * K + k * Np, MRHS + Np * K + k * Np, OutputRHS + Np * K + k * Np, Np);
-		}
-
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
