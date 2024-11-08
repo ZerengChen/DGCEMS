@@ -62,34 +62,50 @@ void CalculateDensityField(double *fphys) {
 
 		Limiter3d(BaroclinicT);
 		Limiter3d(BaroclinicS);
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+		for (int k = 0; k < K; k++) {
+			for (int n = 0; n < Np; n++) {
+				BaroclinicT[k * Np + n] = fmax(0.0, BaroclinicT[k * Np + n]);
+				BaroclinicS[k * Np + n] = fmax(0.0, BaroclinicS[k * Np + n]);
+			}
+		}
+
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int i = 0; i < K; i++) {
 		if ((NdgRegionType)Status3d[i] != NdgRegionWet) {
-			continue;
+			for (int p = 0; p < Np; p++) {
+				rho[i * Np + p] = rho0;
+				hT[i * Np + p] = 0.0;
+				hS[i * Np + p] = 0.0;
+			}
 		}
 		else {
 			//		if (!strcmp(EosType, "Jackett05")) {
 						//for (int p = 0; p < Np; p++) {
 						//	EosByFeistel(rho + i*Np + p, fmax(*(BaroclinicT + i*Np + p), 0.0), fmax(*(BaroclinicS + i*Np + p), 0.0) );
-						//    hT[i * Np + p] = BaroclinicT[i * Np + p] * height[i * Np + p];
-						//    hS[i * Np + p] = BaroclinicS[i * Np + p] * height[i * Np + p];
+						//    hT[i * Np + p] = fmax(0, BaroclinicT[i * Np + p]) * height[i * Np + p];
+						//    hS[i * Np + p] = fmax(0, BaroclinicS[i * Np + p]) * height[i * Np + p];
 						//}
 			//		}
 					//else if (!strcmp(EosType, "UNESCO83")) {
 					//	for (int p = 0; p < Np; p++) {
 					//		EosByUNESCO(rho + i*Np + p, fmax(*(BaroclinicT + i*Np + p), 0.0), fmax(*(BaroclinicS + i*Np + p), 0.0));
-					//      hT[i * Np + p] = BaroclinicT[i * Np + p] * height[i * Np + p];
-					//      hS[i * Np + p] = BaroclinicS[i * Np + p] * height[i * Np + p];
+					//      hT[i * Np + p] = fmax(0, BaroclinicT[i * Np + p]) * height[i * Np + p];
+					//      hS[i * Np + p] = fmax(0, BaroclinicS[i * Np + p]) * height[i * Np + p];
 					//	}
 					//}
 					//else if (!strcmp(EosType, "Linear")) {
 			for (int p = 0; p < Np; p++) {
 				EosByLinear(rho + i * Np + p, fmax(*(BaroclinicT + i * Np + p), 0.0), fmax(*(BaroclinicS + i * Np + p), 0.0), rho0, T0, S0, alphaT, betaS);
-				hT[i * Np + p] = BaroclinicT[i * Np + p] * height[i * Np + p];
-				hS[i * Np + p] = BaroclinicS[i * Np + p] * height[i * Np + p];
+				BaroclinicT[i * Np + p] = fmin(BaroclinicT[i * Np + p], 20);
+				BaroclinicS[i * Np + p] = fmin(BaroclinicS[i * Np + p], 35);
+				hT[i * Np + p] = fmax(0, BaroclinicT[i * Np + p]) * height[i * Np + p];
+				hS[i * Np + p] = fmax(0, BaroclinicS[i * Np + p]) * height[i * Np + p];
 			}
 			//}
 			//else {

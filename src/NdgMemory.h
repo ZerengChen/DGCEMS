@@ -47,7 +47,7 @@ public:
 
 	void MemoryAllocationCheck(double *, int );*/
 
-	void VertDiffMemoryAllocation(const int, int, const int);
+	void VertDiffMemoryAllocation(int, int, int, int);
 
 	void VertDiffMemoryDeAllocation();
 

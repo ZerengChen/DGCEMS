@@ -66,7 +66,7 @@ void JudgingNodeAndElementWD(double *source_h2d, double *source_hu2d, double *so
 		/* 2. Calculate theta.*/
 		/* 3. Restruct h2d,hu2d and hv2d.*/
 		WDelementRestructing(source_h2d, source_hu2d, source_hv2d, Np3d, NLayer, Np2d, K2d, k, type);
-		type = NdgRegionDry;
+		type = NdgRegionPartialWetDamBreak;
 		//if (type == NdgRegionPartialWet) {
 		//	/****** A refined version to judge the flood and dambreak ******/
 		//	for (int n = 0; n < Np2d; n++) {
@@ -146,12 +146,10 @@ void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int
 		
 		for (int n = 0; n < Np2d; n++) {
 			h2d[n] = _h_mean + theta * (h2d[n] - _h_mean);
-			hu2d[n] = _hu_mean / _h_mean * h2d[n];
-			hv2d[n] = _hv_mean / _h_mean * h2d[n];
-			//hu2d[n] = 0.0;
-			//hv2d[n] = 0.0;
-			//hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
-			//hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
+			//hu2d[n] = _hu_mean / _h_mean * h2d[n];
+			//hv2d[n] = _hv_mean / _h_mean * h2d[n];
+			hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
+			hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
 
 			if (h2d[n] <= Hcrit) {
 				hu2d[n] = 0.0;
@@ -161,14 +159,14 @@ void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int
 	}
 	else {
 		type2d_ = NdgRegionDry;
-		for (int n = 0; n < Np2d; n++) {
-			if (h2d[n] < 0.0) {
-				h2d[n] = 0.0;
-			}
+		//for (int n = 0; n < Np2d; n++) {
+		//	if (h2d[n] < 0.0) {
+		//		h2d[n] = 0.0;
+		//	}
 
-			hu2d[n] = 0.0;
-			hv2d[n] = 0.0;
-		}
+		//	hu2d[n] = 0.0;
+		//	hv2d[n] = 0.0;
+		//}
 	}
 
 }

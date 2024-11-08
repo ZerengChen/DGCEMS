@@ -382,7 +382,7 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 	AllocateMemory.AdvMemoryAllocation(*Np, *K, Nvar, *IENfp, *IENe, *Nface, *BENfp, *BENe, *BotENfp, *BotENe, *BotBENfp, *BotBENe, *SurfBENfp, *SurfBENe);
 	AllocateMemory.HorizDiffMemoryAllocation(*Np, *K, Nvar, *Nface, *BENfp, *BENe, *IENfp, *IENe);
 	AllocateMemory.PCEUpdatedMemoryAllocation(*IENfp2d, *IENe2d, *Np2d, *K2d, *Nface2d, *BENe2d, *BENfp2d, *IENfp, *IENe, *BENe, *BENfp);
-	AllocateMemory.VertDiffMemoryAllocation(*Np2d, *K2d, *Nlayer3d);
+	AllocateMemory.VertDiffMemoryAllocation(*Np2d, *K2d, *Nlayer3d, Nvar);
 	AllocateMemory.UpdatedVertVelocitySolverMemoryAllocation(*Np2d, *K2d, *IENfp2d, *IENe2d, *Nface2d, *BENe2d, *BENfp2d, *Np, *K, *IENfp, *IENe, *BENe, *BENfp);
 	AllocateMemory.GotmSolverMemoryAllocation(num2d, Interface, *Np2d, *K);
 
@@ -653,7 +653,13 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 		}
 
 /*****************************************************************  Start RK time step  *****************************************************************/
-		/*****  Step  1 *****/
+		//OUTPUT TECPLOT
+		if (TEC_out_i % StepNumber == 0) {
+			addTecdata(fphys, fphys2d, sizeof_PerNode, Swan_DG_Node, (int)(TEC_out_i*dt));//update in every StepNumber*dt 
+		}
+		TEC_out_i++;
+
+/*****  Step  1 *****/
 		int intRK = 0;
 		tloc = time + rkt[intRK] * dt;
 
@@ -904,7 +910,7 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 		time = time + dt;
 
 		//UpdateOutputResult( time, fphys2d, fphys );后期会改，按照需要输出的结果自行调节
-		UpdateOutputResult(time, fphys2d, fphys);
+		//UpdateOutputResult(time, fphys2d, fphys);
 
 		timeRatio = time / ftime;
 
@@ -913,13 +919,9 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 		control++;
 #endif
 
-		//OUTPUT TECPLOT
-		if (TEC_out_i % StepNumber == 0) {
-			addTecdata(fphys, fphys2d, sizeof_PerNode, Swan_DG_Node, (int)(TEC_out_i*dt));//update in every StepNumber*dt 
-		}
-		TEC_out_i++;
-
 	}
+
+	addTecdata(fphys, fphys2d, sizeof_PerNode, Swan_DG_Node, (int)(TEC_out_i*dt));//update in every StepNumber*dt
 
 	//free(Tempfphys2d); Tempfphys2d = NULL;
 	//free(Tempfphys); Tempfphys = NULL;

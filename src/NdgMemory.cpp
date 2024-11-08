@@ -158,16 +158,16 @@ double *Tau = NULL, *BBE = NULL, *SBE = NULL, *Hhuv2d = NULL, \
 *Tau_w = NULL, *Tau_CW = NULL, *fw = NULL, *Ab = NULL, *Eta2d = NULL;
 //char *VertDiffInitialized = "False";
 
-void NdgMemory::VertDiffMemoryAllocation(const int Np2d, int K2d, const int Nz){
+void NdgMemory::VertDiffMemoryAllocation(int Np2d, int K2d, int Nz, int Nvar){
 	Tau = (double *)malloc(sizeof(double)*(Np2d*K2d*(Nz+1)));
     MemoryAllocationCheck(Tau, sizeof(double)*(Np2d*K2d*(Nz+1)));
 	//memset(Tau, 0, sizeof(double)*(Np2d*K2d*(Nz + 1)));
-	BBE = (double *)malloc(sizeof(double)*(Np2d*K2d*4));//Include T S
-	MemoryAllocationCheck(BBE, sizeof(double)*(Np2d*K2d * 4));
-	memset(BBE, 0, sizeof(double)*(Np2d*K2d * 4));
-	SBE = (double *)malloc(sizeof(double)*(Np2d*K2d * 4));
-	MemoryAllocationCheck(SBE, sizeof(double)*(Np2d*K2d * 4));
-	memset(SBE, 0, sizeof(double)*(Np2d*K2d * 4));
+	BBE = (double *)malloc(sizeof(double)*(Np2d*K2d*Nvar));
+	MemoryAllocationCheck(BBE, sizeof(double)*(Np2d*K2d * Nvar));
+	memset(BBE, 0, sizeof(double)*(Np2d*K2d * Nvar));
+	SBE = (double *)malloc(sizeof(double)*(Np2d*K2d * Nvar));
+	MemoryAllocationCheck(SBE, sizeof(double)*(Np2d*K2d * Nvar));
+	memset(SBE, 0, sizeof(double)*(Np2d*K2d * Nvar));
 	Hhuv2d = (double *)malloc(sizeof(double)*Np2d*K2d*3);
 	MemoryAllocationCheck(Hhuv2d, sizeof(double)*(Np2d*K2d*3));
 	//memset(Hhuv2d, 0, sizeof(double)*(Np2d*K2d * 3));
