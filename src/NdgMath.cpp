@@ -1,6 +1,7 @@
 #include "NdgMath.h"
 #include "cblas.h"
 #include <iostream>
+#include<mpi.h>
 using namespace std;
 //#include <Accelerate.h>
 //#include <omp.h>
@@ -21,12 +22,12 @@ using namespace std;
 #define LAPACK_ROW_MAJOR               101
 #define LAPACK_COL_MAJOR               102
 
-void Add(double *dest, double *sourcea, double *sourceb, int size){
+void Add(double *dest, double *sourcea, double *sourceb, int size) {
 	for (int i = 0; i < size; i++)
 		dest[i] = sourcea[i] + sourceb[i];
 }
 
-void AddByConstant(double *dest, double *sourcea, double ConstData, int size){
+void AddByConstant(double *dest, double *sourcea, double ConstData, int size) {
 	for (int i = 0; i < size; i++)
 		dest[i] = sourcea[i] + ConstData;
 }
@@ -34,7 +35,7 @@ void AddByConstant(double *dest, double *sourcea, double ConstData, int size){
 /*Note: This function is used to assemble the facial integral term into the local stiff operator according to the column index, and has been checked*/
 void AssembleContributionIntoColumn(double *dest, double *source, double *column, int Np3d, int Np2d)
 {
-	for (int colI = 0; colI < Np2d; colI++){
+	for (int colI = 0; colI < Np2d; colI++) {
 		for (int RowI = 0; RowI < Np3d; RowI++)
 			dest[((int)column[colI] - 1)*Np3d + RowI] += source[colI*Np3d + RowI];
 	}
@@ -42,7 +43,7 @@ void AssembleContributionIntoColumn(double *dest, double *source, double *column
 /*Note: This function is used to assemble the facial integral term into the local stiff operator according to the row index, and has been checked*/
 void AssembleContributionIntoRow(double *dest, double *source, double *Row, int Np3d, int Np2d)
 {
-	for (int colI = 0; colI < Np3d; colI++){
+	for (int colI = 0; colI < Np3d; colI++) {
 		for (int RowI = 0; RowI < Np2d; RowI++)
 			dest[colI*Np3d + (int)Row[RowI] - 1] += source[colI*Np2d + RowI];
 	}
@@ -57,18 +58,18 @@ void AssembleContributionIntoRowAndColumn(double *dest, double *source, double *
 	}
 }
 
-void AssembleDataIntoPoint(double *dest, double *source, double *PIndex, int Size){
-	for (int p = 0; p < Size; p++){
+void AssembleDataIntoPoint(double *dest, double *source, double *PIndex, int Size) {
+	for (int p = 0; p < Size; p++) {
 		dest[(int)PIndex[p] - 1] += source[p];
 	}
 }
 
 /*Note: this function is used to assemble the element mass matrix and the physical diff matrix, and has been verified.
-Left multiply the matrix source with a diagonal matrix composed of element contained in coe. 
+Left multiply the matrix source with a diagonal matrix composed of element contained in coe.
 */
 void DiagMultiply(double *dest, const double *source, const double *coe, int Np)
 {
-	for (int colI = 0; colI < Np; colI++){
+	for (int colI = 0; colI < Np; colI++) {
 		for (int RowI = 0; RowI < Np; RowI++)
 			dest[colI*Np + RowI] = coe[RowI] * source[colI*Np + RowI];
 	}
@@ -76,14 +77,14 @@ void DiagMultiply(double *dest, const double *source, const double *coe, int Np)
 
 void DiagRightMultiply(double *dest, const double *source, const double *coe, int Np)
 {
-	for (int colI = 0; colI < Np; colI++){
-		for (int RowI = 0; RowI < Np;RowI++)
+	for (int colI = 0; colI < Np; colI++) {
+		for (int RowI = 0; RowI < Np; RowI++)
 			dest[colI*Np + RowI] = coe[colI] * source[colI*Np + RowI];
 	}
 }
 
-void DotCriticalDivide(double *dest, double *source, double *criticalValue, double *Depth, int size){
-	for (int i = 0; i < size; i++){
+void DotCriticalDivide(double *dest, double *source, double *criticalValue, double *Depth, int size) {
+	for (int i = 0; i < size; i++) {
 		if (Depth[i] >= *criticalValue)
 			dest[i] = source[i] / Depth[i];
 		else
@@ -91,19 +92,178 @@ void DotCriticalDivide(double *dest, double *source, double *criticalValue, doub
 	}
 }
 
-void DotDivide(double *dest, double *source, double *Coefficient, int size){
+void DotDivide(double *dest, double *source, double *Coefficient, int size) {
 	for (int i = 0; i < size; i++)
 		dest[i] = source[i] / Coefficient[i];
 }
 
-void DotDivideByConstant(double *dest, double *Source, double Coefficient, int Np){
+void DotDivideByConstant(double *dest, double *Source, double Coefficient, int Np) {
 	for (int i = 0; i < Np; i++)
 		dest[i] = Source[i] / Coefficient;
 }
 
-void DotProduct(double *dest, double *sourcea, double *sourceb, int size){
+void DotProduct(double *dest, double *sourcea, double *sourceb, int size) {
 	for (int i = 0; i < size; i++)
 		dest[i] = sourcea[i] * sourceb[i];
+}
+
+void Exchange(double *fphys, double *IEFToE, int *pE, int IENe, int Np, int K, int Nfield)
+{
+	//对2D,3D均适用
+	int MyID, MPIsize;
+	int ThisElement, AdjacentElement;
+	MPI_Comm_rank(MPI_COMM_WORLD, &MyID);
+	MPI_Comm_size(MPI_COMM_WORLD, &MPIsize);
+	MPI_Status status_MPI; // variable to contain status information
+	//MPI_Request request_MPI[MPIsize];
+	for (int i = 0; i < IENe; i++) {
+		ThisElement = (int)IEFToE[2 * i];//本侧的单元编号
+		AdjacentElement = (int)IEFToE[2 * i + 1];//相邻的单元编号
+		if ((pE[AdjacentElement - 1] != pE[ThisElement - 1])) {//如果两者的分区不一致，调出这两个分区对应的进程交换数据
+			//if (MyID == pE[ThisElement - 1]){
+			//	for (int field = 0; field < Nfield; field++) {
+			//		int tag1 = i + field;
+			//		int tag2 = i + Nfield + field;
+			//		MPI_Sendrecv(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag1, \
+			//			fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag2, \
+			//			MPI_COMM_WORLD, &status_MPI);
+			//	}
+   //         }
+			//else if (MyID == pE[AdjacentElement - 1]) {
+			//	for (int field = 0; field < Nfield; field++) {
+			//		int tag3 = i + Nfield + field;
+			//		int tag4 = i + field;
+			//		MPI_Sendrecv(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag3, \
+			//			fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag4, \
+			//			MPI_COMM_WORLD, &status_MPI);
+			//	}
+			//}
+			//if (MyID == pE[ThisElement - 1]){
+			//	for (int field = 0; field < Nfield; field++) {
+			//		int tag1 = field * IENe * MPIsize + i * MPIsize + pE[ThisElement - 1];
+			//		int tag2 = field * IENe * MPIsize + i * MPIsize + pE[AdjacentElement - 1];
+			//		MPI_Isend(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag1, MPI_COMM_WORLD, &request_MPI[0]);
+			//		MPI_Irecv(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag2, MPI_COMM_WORLD, &request_MPI[1]);
+			//		MPI_Wait(&request_MPI[1], &status_MPI);
+			//	}
+			//}
+			//else if (MyID == pE[AdjacentElement - 1]) {
+			//	for (int field = 0; field < Nfield; field++) {
+			//		int tag1 = field * IENe * MPIsize + i * MPIsize + pE[AdjacentElement - 1];
+			//		int tag2 = field * IENe * MPIsize + i * MPIsize + pE[ThisElement - 1];
+			//		MPI_Irecv(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag2, MPI_COMM_WORLD, &request_MPI[0]);
+			//		MPI_Isend(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag1, MPI_COMM_WORLD, &request_MPI[1]);
+			//		MPI_Wait(&request_MPI[0], &status_MPI);
+			//	}
+			//}
+			if (MyID == pE[ThisElement - 1]) {
+				for (int field = 0; field < Nfield; field++) {
+					int tag1 = pE[ThisElement - 1] + field;
+					int tag2 = pE[AdjacentElement - 1] + field;
+					MPI_Send(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag1, MPI_COMM_WORLD);
+					//std::cout << "ThisID "<< pE[ThisElement - 1] <<" send to ID "<< pE[AdjacentElement - 1] << std::endl;
+					MPI_Recv(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag2, MPI_COMM_WORLD, &status_MPI);
+					//std::cout << "ThisID " << pE[ThisElement - 1] << " recv from ID " << pE[AdjacentElement - 1] << std::endl;
+				}
+			}
+			else if (MyID == pE[AdjacentElement - 1]) {
+				for (int field = 0; field < Nfield; field++) {
+					int tag1 = pE[AdjacentElement - 1] + field;
+					int tag2 = pE[ThisElement - 1] + field;
+					MPI_Recv(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag2, MPI_COMM_WORLD, &status_MPI);
+					//std::cout << "AdjacentID " << pE[ThisElement - 1] << " send to ID " << pE[AdjacentElement - 1] << std::endl;
+					MPI_Send(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag1, MPI_COMM_WORLD);
+					//std::cout << "AdjacentID " << pE[ThisElement - 1] << " recv from ID " << pE[AdjacentElement - 1] << std::endl;
+				}
+			}
+			//else{}
+		}
+
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void Exchange(signed char *fphys, double *IEFToE, int *pE, int IENe, int Np, int K, int Nfield)
+{
+	//对2D,3D均适用
+	int MyID, MPIsize;
+	int ThisElement, AdjacentElement;
+	MPI_Comm_rank(MPI_COMM_WORLD, &MyID);
+	MPI_Comm_size(MPI_COMM_WORLD, &MPIsize);
+	MPI_Status status_MPI; // variable to contain status information
+	//MPI_Request request_MPI[MPIsize];
+	for (int i = 0; i < IENe; i++) {
+		ThisElement = (int)IEFToE[2 * i];//本侧的单元编号
+		AdjacentElement = (int)IEFToE[2 * i + 1];//相邻的单元编号
+		if ((pE[AdjacentElement - 1] != pE[ThisElement - 1])) {	
+			if (MyID == pE[ThisElement - 1]) {
+				for (int field = 0; field < Nfield; field++) {
+					int tag1 = pE[ThisElement - 1] + field;
+					int tag2 = pE[AdjacentElement - 1] + field;
+					MPI_Send(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag1, MPI_COMM_WORLD);
+					//std::cout << "ThisID "<< pE[ThisElement - 1] <<" send to ID "<< pE[AdjacentElement - 1] << std::endl;
+					MPI_Recv(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[AdjacentElement - 1], tag2, MPI_COMM_WORLD, &status_MPI);
+					//std::cout << "ThisID " << pE[ThisElement - 1] << " recv from ID " << pE[AdjacentElement - 1] << std::endl;
+				}
+			}
+			else if (MyID == pE[AdjacentElement - 1]) {
+				for (int field = 0; field < Nfield; field++) {
+					int tag1 = pE[AdjacentElement - 1] + field;
+					int tag2 = pE[ThisElement - 1] + field;
+					MPI_Recv(fphys + Np * (ThisElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag2, MPI_COMM_WORLD, &status_MPI);
+					//std::cout << "AdjacentID " << pE[ThisElement - 1] << " send to ID " << pE[AdjacentElement - 1] << std::endl;
+					MPI_Send(fphys + Np * (AdjacentElement - 1) + field * Np * K, Np, MPI_DOUBLE, pE[ThisElement - 1], tag1, MPI_COMM_WORLD);
+					//std::cout << "AdjacentID " << pE[ThisElement - 1] << " recv from ID " << pE[AdjacentElement - 1] << std::endl;
+				}
+			}
+			//else{}
+		}
+
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void GatherToZero(double *fphys, int *pE, int Np, int K, int Nfield) {
+	//对2D,3D均适用
+	int MyID, MPIsize;
+	MPI_Comm_rank(MPI_COMM_WORLD, &MyID);
+	MPI_Comm_size(MPI_COMM_WORLD, &MPIsize);
+	MPI_Status status_MPI; // variable to contain status information
+	MPI_Request request_MPI;
+	for (int k = 0; k < K; k++) {
+		if (pE[k] > 0) {
+			if (MyID == pE[k]) {
+				//MPI_Send(fphys + Np * k, Np, MPI_DOUBLE, 0, pE[k], MPI_COMM_WORLD);
+				MPI_Isend(fphys + Np * k, Np, MPI_DOUBLE, 0, pE[k], MPI_COMM_WORLD, &request_MPI);
+			}
+			else{}
+		}
+		else {
+			//MPI_Recv(fphys + Np * k, Np, MPI_DOUBLE, pE[k], pE[k], MPI_COMM_WORLD, &status_MPI);
+			MPI_Irecv(fphys + Np * k, Np, MPI_DOUBLE, pE[k], pE[k], MPI_COMM_WORLD, &request_MPI);
+			MPI_Wait(&request_MPI, &status_MPI);
+		}
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void BroadcastToAll(double *fphys, int *pE, int Np, int K, int Nfield) {
+	//对2D,3D均适用
+	int MyID, MPIsize;
+	MPI_Comm_rank(MPI_COMM_WORLD, &MyID);
+	MPI_Comm_size(MPI_COMM_WORLD, &MPIsize);
+	MPI_Status status_MPI; // variable to contain status information
+	MPI_Request request_MPI;
+	if (MyID == 0) {
+		for (int i = 1; i < MPIsize - 1; i++) {
+			MPI_Isend(fphys, Np * K * Nfield, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &request_MPI);
+		}
+	}
+	else {
+		MPI_Irecv(fphys, Np * K * Nfield, MPI_DOUBLE, 0, MyID, MPI_COMM_WORLD, &request_MPI);
+		MPI_Wait(&request_MPI, &status_MPI);
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
 }
 
 
@@ -218,7 +378,7 @@ void GetVolumnIntegralOnlyVertical(double *dest, int *RowOPA, int *ColOPB, int *
 
 void GetVolumnIntegral3d(double *dest, double *tempdest, int *RowOPA, int *ColOPB, int *ColOPA, double *alpha, \
 	double *Dr, double *Ds, double *Dt, double *E, double *G, double *H, int *LDA, int *LDB, double *Beta, int *LDC, \
-	double *rx, double *sx, double *ry, double *sy, double *tz, int Nvar, int Np, int K, int WDflag)
+	double *rx, double *sx, double *ry, double *sy, double *tz, int Nvar, int Np, int K)
 {
 	for (int n = 0; n < Nvar; n++){
 		/*$Dr*E$*/
@@ -247,7 +407,6 @@ void GetVolumnIntegral3d(double *dest, double *tempdest, int *RowOPA, int *ColOP
 		DotProduct(tempdest, tempdest, sy, (int)(*LDC));
 		/*rx\cdot Dr*E + sx\cdot Ds*E + ry\cdot Dr*G + sy\cdot Ds*G */
 		Add(dest + n*Np*K, dest + n*Np*K, tempdest, (int)(*LDC));
-		if (WDflag == 1) {
 		/*$Dt*H$*/
 		MatrixMultiply(Dt, H + n * Np*K, tempdest, *RowOPA, *ColOPB, *ColOPA, *alpha);
 		//dgemm("N", "N", RowOPA, ColOPB, ColOPA, alpha, Dt, LDA, H + n*Np*K, LDB, Beta, tempdest, LDC);
@@ -255,7 +414,6 @@ void GetVolumnIntegral3d(double *dest, double *tempdest, int *RowOPA, int *ColOP
 		DotProduct(tempdest, tempdest, tz, (int)(*LDC));
 		/*$rx\cdot Dr*E + sx\cdot Ds*E + ry\cdot Dr*G + sy\cdot Ds*G + tz\cdot Dt*H$*/
 		Add(dest + n*Np*K, dest + n*Np*K, tempdest, (int)(*LDC));
-		}
 	}
 }
 

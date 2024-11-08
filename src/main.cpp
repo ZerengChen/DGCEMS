@@ -1,11 +1,14 @@
 //#include "MeshUnion.h"
 #include"NdgPhysMat.h"
 #include"GlobalVar.h"
+#ifndef _MPI_
+#include "UseMetis.h"
+#endif
 #include <chrono>
 #ifdef COUPLING_SWAN
 #include"c_coupler_cpp_interface_wrj.h"
 #endif
-#include<mpi.h>
+//#include<mpi.h>
 #include<string>
 #include<iostream>
 
@@ -13,15 +16,15 @@ MeshUnion_dim Read_NC_dim;
 MeshUnion mesh;
 const MeshUnion *meshunion = &mesh;
 
-int main(int argc, char* argv)
+int main(int argc, char** argv)
 {
-	//-------- For MPI --------//
-	//MPI_Init(&argc, &argv);
-	//extern int MPIrank;
-	//extern int MPIsize;
-	//MPI_Comm_rank(MPI_COMM_WORLD, &MPIrank);
-	//MPI_Comm_size(MPI_COMM_WORLD, &MPIsize);
-	*dg_demo_comp_id = 0;
+	MPI_Init(&argc, &argv);
+	int MPIrank;
+	int MPIsize;
+	MPI_Comm_rank(MPI_COMM_WORLD, &MPIrank);
+	MPI_Comm_size(MPI_COMM_WORLD, &MPIsize);
+	*dg_demo_comp_id = MPIrank;//Õâ¸öÔõÃ´Åª£¿
+
 	//-------- For MPI --------//
 
 	//Read parameter
@@ -153,58 +156,81 @@ int main(int argc, char* argv)
 
 	infile.close();
 
-	std::cout << " Welcome to the 3D DG-FEM Hydrodynamic model by CZR in 2022." << std::endl;
-	cout << "ftime = " << ftime << " s" << endl;
-	cout << "coupling_freq = " << *coupling_freq << " step/s" << endl;
-	cout << "time_step = " << *time_step << " s" << endl;
-	cout << "First_CouplingStep = " << First_CouplingStep << " step" << endl;
-	cout << "Calculating_CouplingSteps = " << Calculating_CouplingSteps << " step" << endl;
-	cout << "dt = " << dt << " s" << endl;
-	cout << "tidalinterval = " << tidalinterval << " s" << endl;
-	cout << "NOut = " << NOut << " times" << endl;
-	cout << "gra = " << gra << " m/s2" << endl;
-	cout << "Hcrit = " << Hcrit << " m" << endl;
-	cout << "Nvar = " << Nvar << endl;
-	cout << "Nfield3d = " << Nfield3d << endl;
-	cout << "Nfield2d = " << Nfield2d << endl;
-	cout << "rho0 = " << rho0 << " kg/m3" << endl;
-	cout << "z0b = " << z0b << " m" << endl;
-	cout << "z0s = " << z0s << " m" << endl;
-	cout << "WindTauxC = " << WindTauxC << " m2/s2" << endl;
-	cout << "WindTauyC = " << WindTauyC << " m2/s2" << endl;
-	cout << "Switch_Limiter3D = " << Switch_Limiter3D << endl;
-	cout << "Switch_GOTM = " << Switch_GOTM << endl;
-	cout << "cf = " << cf << " m" << endl;
-	cout << "nv_con = " << nv_con << endl;
-	cout << "OutputTime = " << StepNumber * dt << " s" << endl;
-	cout << "Init temperature = " << T0 << " C degree" << endl;
-	cout << "Init salimity = " << S0 << " g/kg" << endl;
-	cout << "Accelerate temperature parameter = " << alphaT << " " << endl;
-	cout << "Accelerate salimity parameter = " << betaS << " " << endl;
-	cout << "Latitude = " << Latitude << " degree" << endl;
-	cout << "End read parameter." << endl;
+	if (MPIrank == 0) {
+		std::cout << " Welcome to the 3D DG-FEM Hydrodynamic model by CZR in 2022." << std::endl;
+		cout << "MPIsize = " << MPIsize << "  " << endl;
+		cout << "ftime = " << ftime << " s" << endl;
+		cout << "coupling_freq = " << *coupling_freq << " step/s" << endl;
+		cout << "time_step = " << *time_step << " s" << endl;
+		cout << "First_CouplingStep = " << First_CouplingStep << " step" << endl;
+		cout << "Calculating_CouplingSteps = " << Calculating_CouplingSteps << " step" << endl;
+		cout << "dt = " << dt << " s" << endl;
+		cout << "tidalinterval = " << tidalinterval << " s" << endl;
+		cout << "NOut = " << NOut << " times" << endl;
+		cout << "gra = " << gra << " m/s2" << endl;
+		cout << "Hcrit = " << Hcrit << " m" << endl;
+		cout << "Nvar = " << Nvar << endl;
+		cout << "Nfield3d = " << Nfield3d << endl;
+		cout << "Nfield2d = " << Nfield2d << endl;
+		cout << "rho0 = " << rho0 << " kg/m3" << endl;
+		cout << "z0b = " << z0b << " m" << endl;
+		cout << "z0s = " << z0s << " m" << endl;
+		cout << "WindTauxC = " << WindTauxC << " m2/s2" << endl;
+		cout << "WindTauyC = " << WindTauyC << " m2/s2" << endl;
+		cout << "Switch_Limiter3D = " << Switch_Limiter3D << endl;
+		cout << "Switch_GOTM = " << Switch_GOTM << endl;
+		cout << "cf = " << cf << " m" << endl;
+		cout << "nv_con = " << nv_con << endl;
+		cout << "OutputTime = " << StepNumber * dt << " s" << endl;
+		cout << "Init temperature = " << T0 << " C degree" << endl;
+		cout << "Init salimity = " << S0 << " g/kg" << endl;
+		cout << "Accelerate temperature parameter = " << alphaT << " " << endl;
+		cout << "Accelerate salimity parameter = " << betaS << " " << endl;
+		cout << "Latitude = " << Latitude << " degree" << endl;
+		cout << "End read parameter." << endl;
+	}
 
-	//End read parameter.
+	/* Then we use Metis to partition the grids. */
+	int K = *meshunion->K;
+	int K2d = *meshunion->mesh2d_p->K2d;
+	int Nv2d = *meshunion->mesh2d_p->Nv2d;
+	int *pE2d = (int*)malloc(K2d * sizeof(int));
+	int *pE3d = (int*)malloc(K * sizeof(int));
+	int *pV = (int*)malloc(Nv2d * sizeof(int));
+	UseMetis useMetis;
 #ifdef COUPLING_SWAN
-	int mpicom = MPI_COMM_NULL ;
+	useMetis.partiGraph(pE2d, pE3d, pV, K / K2d, MPIsize - 1);
+#endif
+#ifndef COUPLING_SWAN
+	useMetis.partiGraph(pE2d, pE3d, pV, K / K2d, MPIsize);
 #endif
 
 	NdgPhysMat Solver;
-	cout << "Solver has been built!" << endl;
-#ifdef COUPLING_SWAN	
+	if (MPIrank == 0) {
+#ifdef COUPLING_SWAN
+	int mpicom = MPI_COMM_NULL;
 	register_dg_demo_component_wrj(&mpicom);
 #endif
+		cout << "Solver has been built!" << endl;	
+	}
+
+	MPI_Barrier(MPI_COMM_WORLD);
 
 	chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
-	Solver.matSolver();
+	Solver.matSolver(pE2d, pE3d, pV);
 	chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
 	chrono::duration<double> time_used = chrono::duration_cast < chrono::duration<double>>(t1 - t0);
-	cout << "Total calculating time is :" << time_used.count() << " s" << endl;
 
-	cout << "TADA!" << endl;
+	if (MPIrank == 0) {
+		cout << "Total calculating time is :" << time_used.count() << " s" << endl;
+		cout << "TADA!" << endl;
+	}
 
 	//-------- For MPI --------//
-	//MPI_Finalize();
+	free(pE2d); pE2d = NULL;
+	free(pE3d); pE3d = NULL;
+	free(pV); pV = NULL;
+	MPI_Finalize();
 	//-------- For MPI --------//
 	delete[] dg_demo_comp_id;
 	delete[] decomp_id;

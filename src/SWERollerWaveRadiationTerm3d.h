@@ -13,7 +13,7 @@ public:
 	SWERollerWaveRadiationTerm3d();
 	~SWERollerWaveRadiationTerm3d();
 
-	void EvaluateWaveRadiationRHS(double *fphys, double *frhs, double *time_, double *Hs, double *T, double *DIR, double *QB, double *WLEN);
+	void EvaluateWaveRadiationRHS(double *fphys, double *frhs, double *time_, double *Hs, double *T, double *DIR, double *QB, double *WLEN,int*pE2d, int*pE3d, int MyID);
 protected:
 	VerticalColumnIntegralField verticalColumnIntegralField;
 };

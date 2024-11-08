@@ -44,7 +44,7 @@ void ImposeBoundaryCondition(double *gra, NdgEdgeType type, double *nx, double *
 		}
 	}
 	else if (type == NdgEdgeClampedDepth) {
-		for (int i = 0; i < Nfp; i++){
+		for (int i = 0; i < Nfp; i++) {
 			const double uE = huM[i] / hE[i];
 			const double vE = hvM[i] / hE[i];
 			const double unE = uE * nx[i] + vE * ny[i];   // outward normal flux
@@ -56,7 +56,7 @@ void ImposeBoundaryCondition(double *gra, NdgEdgeType type, double *nx, double *
 			hvP[i] = (un * ny[i] + uv * nx[i]) * hM[i];
 			for (int n = 3; n < Nvar; n++) {
 				fp[n*Nfp*Ne + i] = fext[n*Nfp*Ne + i];
-		    }
+			}
 		}
 	}
 	else if (type == NdgEdgeClampedVel) {

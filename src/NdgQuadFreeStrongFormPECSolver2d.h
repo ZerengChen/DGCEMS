@@ -12,7 +12,7 @@ public:
 	NdgQuadFreeStrongFormPECSolver2d();
 	~NdgQuadFreeStrongFormPECSolver2d();
 
-	void evaluatePCERHSUpdated(double *fphys, double *frhs, double *fext, int *varFieldIndex, double *fphys2d, double *fext2d);
+	void evaluatePCERHSUpdated(double *fphys, double *frhs, double *fext, int *varFieldIndex, double *fphys2d, double *fext2d,int*pE2d,int*pE3d,int MyID);
 
 
 };

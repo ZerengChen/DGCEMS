@@ -28,7 +28,7 @@ extern double  S0;
 extern double  alphaT;
 extern double  betaS;
 
-void EvaluateBaroclinicTerm(double *fphys, double *frhs, double *fext_) {
+void EvaluateBaroclinicTerm(double *fphys, double *frhs, double *fext_, int*pE2d, int*pE3d, int MyID) {
 	int Np = *(meshunion->cell_p->Np);
 	int K = *(meshunion->K);
 
@@ -75,8 +75,8 @@ void EvaluateBaroclinicTerm(double *fphys, double *frhs, double *fext_) {
 	int K2d = K/ NLayer;
 	int BotENe = *(meshunion->bottomedge_p->Ne);
 
-	GetFirstOrderPartialDerivativeInHorizontalDirection(BaroclinicPDPX, BaroclinicPDPY, BaroclinicPRHOPX, BaroclinicPRHOPY, h, rho, fext3d);
-	GetFirstOrderPartialDerivativeInVerticalDirection(BaroclinicPRHOPS, rho);
+	GetFirstOrderPartialDerivativeInHorizontalDirection(BaroclinicPDPX, BaroclinicPDPY, BaroclinicPRHOPX, BaroclinicPRHOPY, h, rho, fext3d, pE3d, MyID);
+	GetFirstOrderPartialDerivativeInVerticalDirection(BaroclinicPRHOPS, rho, pE3d, MyID);
 
 	double *InvV = (double*)malloc(Np*Np * sizeof(double));
 	memcpy(InvV, V, Np*Np * sizeof(double));
@@ -86,22 +86,24 @@ void EvaluateBaroclinicTerm(double *fphys, double *frhs, double *fext_) {
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
-			continue;
-		}
-		else {
-			for (int p = 0; p < Np; p++) {
-				DotProduct(BaroclinicInXPartOne + k * Np, h + k * Np, BaroclinicPRHOPX + k * Np, Np);
-				DotProduct(BaroclinicInXPartTwo + k * Np, z + k * Np, BaroclinicPDPX + k * Np, Np);
-				DotProduct(BaroclinicInXPartTwo + k * Np, BaroclinicInXPartTwo + k * Np, BaroclinicPRHOPS + k * Np, Np);
-				Minus(BaroclinicInXPartOne + k * Np, BaroclinicInXPartOne + k * Np, BaroclinicInXPartTwo + k * Np, Np);
-				MultiplyByConstant(BaroclinicInXPartOne + k * Np, BaroclinicInXPartOne + k * Np, -1 * gra / rho0, Np);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
+				continue;
+			}
+			else {
+				for (int p = 0; p < Np; p++) {
+					DotProduct(BaroclinicInXPartOne + k * Np, h + k * Np, BaroclinicPRHOPX + k * Np, Np);
+					DotProduct(BaroclinicInXPartTwo + k * Np, z + k * Np, BaroclinicPDPX + k * Np, Np);
+					DotProduct(BaroclinicInXPartTwo + k * Np, BaroclinicInXPartTwo + k * Np, BaroclinicPRHOPS + k * Np, Np);
+					Minus(BaroclinicInXPartOne + k * Np, BaroclinicInXPartOne + k * Np, BaroclinicInXPartTwo + k * Np, Np);
+					MultiplyByConstant(BaroclinicInXPartOne + k * Np, BaroclinicInXPartOne + k * Np, -1 * gra / rho0, Np);
 
-				DotProduct(BaroclinicInYPartOne + k * Np, h + k * Np, BaroclinicPRHOPY + k * Np, Np);
-				DotProduct(BaroclinicInYPartTwo + k * Np, z + k * Np, BaroclinicPDPY + k * Np, Np);
-				DotProduct(BaroclinicInYPartTwo + k * Np, BaroclinicInYPartTwo + k * Np, BaroclinicPRHOPS + k * Np, Np);
-				Minus(BaroclinicInYPartOne + k * Np, BaroclinicInYPartOne + k * Np, BaroclinicInYPartTwo + k * Np, Np);
-				MultiplyByConstant(BaroclinicInYPartOne + k * Np, BaroclinicInYPartOne + k * Np, -1 * gra / rho0, Np);
+					DotProduct(BaroclinicInYPartOne + k * Np, h + k * Np, BaroclinicPRHOPY + k * Np, Np);
+					DotProduct(BaroclinicInYPartTwo + k * Np, z + k * Np, BaroclinicPDPY + k * Np, Np);
+					DotProduct(BaroclinicInYPartTwo + k * Np, BaroclinicInYPartTwo + k * Np, BaroclinicPRHOPS + k * Np, Np);
+					Minus(BaroclinicInYPartOne + k * Np, BaroclinicInYPartOne + k * Np, BaroclinicInYPartTwo + k * Np, Np);
+					MultiplyByConstant(BaroclinicInYPartOne + k * Np, BaroclinicInYPartOne + k * Np, -1 * gra / rho0, Np);
+				}
 			}
 		}
 	}
@@ -111,12 +113,14 @@ void EvaluateBaroclinicTerm(double *fphys, double *frhs, double *fext_) {
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++) {
-		if ((NdgRegionType)Status2d[k] != NdgRegionWet) {
-			continue;
-		}
-		else {
-			VerticalIntegralFromSurface(BaroclinicInXTempRHS + k * NLayer*Np, BaroclinicInXPartOne + k * NLayer*Np, Jz + k * NLayer*Np, Baroclinicfmod + k * Np, NLayer, Np, InvV, Nph, Npz, VintU);
-			VerticalIntegralFromSurface(BaroclinicInYTempRHS + k * NLayer*Np, BaroclinicInYPartOne + k * NLayer*Np, Jz + k * NLayer*Np, Baroclinicfmod + k * Np, NLayer, Np, InvV, Nph, Npz, VintU);
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] != NdgRegionWet) {
+				continue;
+			}
+			else {
+				VerticalIntegralFromSurface(BaroclinicInXTempRHS + k * NLayer*Np, BaroclinicInXPartOne + k * NLayer*Np, Jz + k * NLayer*Np, Baroclinicfmod + k * Np, NLayer, Np, InvV, Nph, Npz, VintU);
+				VerticalIntegralFromSurface(BaroclinicInYTempRHS + k * NLayer*Np, BaroclinicInYPartOne + k * NLayer*Np, Jz + k * NLayer*Np, Baroclinicfmod + k * Np, NLayer, Np, InvV, Nph, Npz, VintU);
+			}
 		}
 	}
 #endif
@@ -125,23 +129,25 @@ void EvaluateBaroclinicTerm(double *fphys, double *frhs, double *fext_) {
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
-			continue;
-		}
-		else {
-			for (int p = 0; p < Np; p++)
-			{
-				BaroclinicInXTempRHS[k*Np + p] = h[k*Np + p] * BaroclinicInXTempRHS[k*Np + p];
-				hurhs[k*Np + p] = hurhs[k*Np + p] + BaroclinicInXTempRHS[k*Np + p];
-				BaroclinicInYTempRHS[k*Np + p] = h[k*Np + p] * BaroclinicInYTempRHS[k*Np + p];
-				hvrhs[k*Np + p] = hvrhs[k*Np + p] + BaroclinicInYTempRHS[k*Np + p];
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] != NdgRegionWet) {
+				continue;
+			}
+			else {
+				for (int p = 0; p < Np; p++)
+				{
+					BaroclinicInXTempRHS[k*Np + p] = h[k*Np + p] * BaroclinicInXTempRHS[k*Np + p];
+					hurhs[k*Np + p] = hurhs[k*Np + p] + BaroclinicInXTempRHS[k*Np + p];
+					BaroclinicInYTempRHS[k*Np + p] = h[k*Np + p] * BaroclinicInYTempRHS[k*Np + p];
+					hvrhs[k*Np + p] = hvrhs[k*Np + p] + BaroclinicInYTempRHS[k*Np + p];
+				}
 			}
 		}
 	}
 	free(InvV);
 }
 
-void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS, double *rho) {
+void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS, double *rho, int*pE3d, int MyID) {
 	double *tz = meshunion->tz;
 	double *J = meshunion->J;
 	int Np = *(meshunion->cell_p->Np);
@@ -183,20 +189,22 @@ void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int face = 0; face < BotENe; face++) {
-		/*Fetch variable BotEfm and BotEfp first*/
 		int adjacentE = (int)BotEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			FetchInnerEdgeFacialValue(rhoM + face * BotENfp, rhoP + face * BotENfp, rho, BotEFToE + 2 * face, \
-				BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
+		if (MyID == pE3d[adjacentE - 1]) {
+			/*Fetch variable BotEfm and BotEfp first*/
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				FetchInnerEdgeFacialValue(rhoM + face * BotENfp, rhoP + face * BotENfp, rho, BotEFToE + 2 * face, \
+					BotEFToN1 + BotENfp * face, BotEFToN2 + BotENfp * face, Np, BotENfp);
 
-			EvaluateFaceSurfFlux(rhoFluxM + face * BotENfp, rhoM + face * BotENfp, BotEnz + face * BotENfp, BotENfp);
+				EvaluateFaceSurfFlux(rhoFluxM + face * BotENfp, rhoM + face * BotENfp, BotEnz + face * BotENfp, BotENfp);
 
-			EvaluateFaceSurfFlux(rhoFluxP + face * BotENfp, rhoP + face * BotENfp, BotEnz + face * BotENfp, BotENfp);
+				EvaluateFaceSurfFlux(rhoFluxP + face * BotENfp, rhoP + face * BotENfp, BotEnz + face * BotENfp, BotENfp);
 
-			EvaluateFaceNumFlux_Central(rhoFluxS + face * BotENfp, rhoM + face * BotENfp, rhoP + face * BotENfp, BotEnz + face * BotENfp, BotENfp);
-		}
-		else {
-			continue;
+				EvaluateFaceNumFlux_Central(rhoFluxS + face * BotENfp, rhoM + face * BotENfp, rhoP + face * BotENfp, BotEnz + face * BotENfp, BotENfp);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -205,14 +213,16 @@ void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS,
 #endif
 	for (int face = 0; face < BotENe; face++) {
 		int adjacentE = (int)BotEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
-			for (int field = 0; field < 1; field++) {
-				StrongFormInnerEdgeRHS(face, BotEFToE, BotEFToF, Np, K, BotENfp, BotEFToN1, BotEFToN2, BaroclinicBotEFluxM + field * BotENe*BotENfp, \
-					BaroclinicBotEFluxP + field * BotENe*BotENfp, BaroclinicBotEFluxS + field * BotENe*BotENfp, BotEJs, BotEMb, BaroclinicERHS + field * Np*K*Nface);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionWet) {
+				for (int field = 0; field < 1; field++) {
+					StrongFormInnerEdgeRHS(face, BotEFToE, BotEFToF, Np, K, BotENfp, BotEFToN1, BotEFToN2, BaroclinicBotEFluxM + field * BotENe*BotENfp, \
+						BaroclinicBotEFluxP + field * BotENe*BotENfp, BaroclinicBotEFluxS + field * BotENe*BotENfp, BotEJs, BotEMb, BaroclinicERHS + field * Np*K*Nface);
+				}
 			}
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -220,15 +230,17 @@ void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			for (int field = 0; field < 1; field++) {
-				for (int face = 1; face < Nface; face++) {
-					Add(BaroclinicERHS + field * Np*K*Nface + k * Np, BaroclinicERHS + field * Np*K*Nface + k * Np, BaroclinicERHS + field * Np*K*Nface + face * Np*K + k * Np, Np);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				for (int field = 0; field < 1; field++) {
+					for (int face = 1; face < Nface; face++) {
+						Add(BaroclinicERHS + field * Np*K*Nface + k * Np, BaroclinicERHS + field * Np*K*Nface + k * Np, BaroclinicERHS + field * Np*K*Nface + face * Np*K + k * Np, Np);
+					}
 				}
 			}
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -240,14 +252,32 @@ void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			for (int field = 0; field < 1; field++) {
-				MultiEdgeContributionByLiftOperator(BaroclinicERHS + field * Np*K*Nface + k * Np, BaroclinicTempFacialIntegral + k * Np, &np, &oneI, &np, \
-					&one, invM, &np, &np, &zero, &np, J + k * Np, Np);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				for (int field = 0; field < 1; field++) {
+					MultiEdgeContributionByLiftOperator(BaroclinicERHS + field * Np*K*Nface + k * Np, BaroclinicTempFacialIntegral + k * Np, &np, &oneI, &np, \
+						&one, invM, &np, &np, &zero, &np, J + k * Np, Np);
+		        }
+	        }
+			else {
+				continue;
 			}
 		}
-		else {
-			continue;
+	}
+
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+	for (int k = 0; k < K; k++) {
+		if (MyID == pE3d[k]) {
+			/*$\bold{t_z}\cdot (Dt*rho)$*/
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				GetVolumnIntegral1d(BaroclinicPRHOPS + k * Np, &np, &oneI, &np, &one, \
+					Dt, &np, rho + k * Np, &np, &zero, &np, tz + k * Np);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -255,32 +285,20 @@ void GetFirstOrderPartialDerivativeInVerticalDirection(double *BaroclinicPRHOPS,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		/*$\bold{t_z}\cdot (Dt*rho)$*/
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			GetVolumnIntegral1d(BaroclinicPRHOPS + k * Np, &np, &oneI, &np, &one, \
-				Dt, &np, rho + k * Np, &np, &zero, &np, tz + k * Np);
-		}
-		else {
-			continue;
-		}
-	}
-
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(DG_THREADS)
-#endif
-	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			Minus(BaroclinicPRHOPS + k * Np, BaroclinicPRHOPS + k * Np, BaroclinicERHS + k * Np, Np);
-		}
-		else {
-			continue;
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				Minus(BaroclinicPRHOPS + k * Np, BaroclinicPRHOPS + k * Np, BaroclinicERHS + k * Np, Np);
+			}
+			else {
+				continue;
+			}
 		}
 	}
 
 }
 
 void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX, double *BaroclinicPDPY, \
-	double *BaroclinicPRHOPX, double *BaroclinicPRHOPY, double *h, double *rho, double *fext)
+	double *BaroclinicPRHOPX, double *BaroclinicPRHOPY, double *h, double *rho, double *fext, int*pE3d, int MyID)
 {
 	double *rx = meshunion->rx;
 	double *sx = meshunion->sx;
@@ -346,34 +364,36 @@ void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int face = 0; face < IENe; face++) {
-		/*Fetch variable IEfm and IEfp first*/
 		int adjacentE = (int)IEFToE[2 * face];
 		int adjacentE2 = (int)IEFToE[2 * face + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue;
-		}
-		else {
-			FetchInnerEdgeFacialValue(hM + face * IENfp, hP + face * IENfp, h, IEFToE + 2 * face, \
-				IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
-			FetchInnerEdgeFacialValue(rhoM + face * IENfp, rhoP + face * IENfp, rho, IEFToE + 2 * face, \
-				IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			/*Fetch variable IEfm and IEfp first*/
+			if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
+				continue;
+			}
+			else {
+				FetchInnerEdgeFacialValue(hM + face * IENfp, hP + face * IENfp, h, IEFToE + 2 * face, \
+					IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
+				FetchInnerEdgeFacialValue(rhoM + face * IENfp, rhoP + face * IENfp, rho, IEFToE + 2 * face, \
+					IEFToN1 + IENfp * face, IEFToN2 + IENfp * face, Np, IENfp);
 
-			EvaluateFaceSurfFlux(HIEfluxMx + face * IENfp, hM + face * IENfp, IEnx + face * IENfp, IENfp);
-			EvaluateFaceSurfFlux(HIEfluxPx + face * IENfp, hP + face * IENfp, IEnx + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(HIEfluxMx + face * IENfp, hM + face * IENfp, IEnx + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(HIEfluxPx + face * IENfp, hP + face * IENfp, IEnx + face * IENfp, IENfp);
 
-			EvaluateFaceSurfFlux(HIEfluxMy + face * IENfp, hM + face * IENfp, IEny + face * IENfp, IENfp);
-			EvaluateFaceSurfFlux(HIEfluxPy + face * IENfp, hP + face * IENfp, IEny + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(HIEfluxMy + face * IENfp, hM + face * IENfp, IEny + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(HIEfluxPy + face * IENfp, hP + face * IENfp, IEny + face * IENfp, IENfp);
 
-			EvaluateFaceSurfFlux(rhoIEfluxMx + face * IENfp, rhoM + face * IENfp, IEnx + face * IENfp, IENfp);
-			EvaluateFaceSurfFlux(rhoIEfluxPx + face * IENfp, rhoP + face * IENfp, IEnx + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(rhoIEfluxMx + face * IENfp, rhoM + face * IENfp, IEnx + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(rhoIEfluxPx + face * IENfp, rhoP + face * IENfp, IEnx + face * IENfp, IENfp);
 
-			EvaluateFaceSurfFlux(rhoIEfluxMy + face * IENfp, rhoM + face * IENfp, IEny + face * IENfp, IENfp);
-			EvaluateFaceSurfFlux(rhoIEfluxPy + face * IENfp, rhoP + face * IENfp, IEny + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(rhoIEfluxMy + face * IENfp, rhoM + face * IENfp, IEny + face * IENfp, IENfp);
+				EvaluateFaceSurfFlux(rhoIEfluxPy + face * IENfp, rhoP + face * IENfp, IEny + face * IENfp, IENfp);
 
-			EvaluateFaceNumFlux_Central(HIEfluxSx + face * IENfp, hM + face * IENfp, hP + face * IENfp, IEnx + face * IENfp, IENfp);
-			EvaluateFaceNumFlux_Central(HIEfluxSy + face * IENfp, hM + face * IENfp, hP + face * IENfp, IEny + face * IENfp, IENfp);
-			EvaluateFaceNumFlux_Central(rhoIEfluxSx + face * IENfp, rhoM + face * IENfp, rhoP + face * IENfp, IEnx + face * IENfp, IENfp);
-			EvaluateFaceNumFlux_Central(rhoIEfluxSy + face * IENfp, rhoM + face * IENfp, rhoP + face * IENfp, IEny + face * IENfp, IENfp);
+				EvaluateFaceNumFlux_Central(HIEfluxSx + face * IENfp, hM + face * IENfp, hP + face * IENfp, IEnx + face * IENfp, IENfp);
+				EvaluateFaceNumFlux_Central(HIEfluxSy + face * IENfp, hM + face * IENfp, hP + face * IENfp, IEny + face * IENfp, IENfp);
+				EvaluateFaceNumFlux_Central(rhoIEfluxSx + face * IENfp, rhoM + face * IENfp, rhoP + face * IENfp, IEnx + face * IENfp, IENfp);
+				EvaluateFaceNumFlux_Central(rhoIEfluxSy + face * IENfp, rhoM + face * IENfp, rhoP + face * IENfp, IEny + face * IENfp, IENfp);
+			}
 		}
 	}
 
@@ -389,25 +409,27 @@ void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int face = 0; face < BENe; face++) {
-		NdgEdgeType type = (NdgEdgeType)ftype[face];  // boundary condition
 		int adjacentE = (int)BEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
-			continue; //BEFToE is just itself
-		}
-		else {
-			FetchBoundaryEdgeFacialValue(hM + face * BENfp, h, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
-			FetchBoundaryEdgeFacialValue(rhoM + face * BENfp, rho, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
-			ImposeBcsForRhoAndH(hTrhoP + face * BENfp, hSp + face * BENfp, hM + face * BENfp, hP + face * BENfp, rhoM + face * BENfp, \
-				fext + face * BENfp, BENfp, BENe, type);
-			/*Fetch variable IEfm and IEfp first*/
-			EvaluateFaceSurfFlux(HBEfluxMx + face * BENfp, hM + face * BENfp, BEnx + face * BENfp, BENfp);
-			EvaluateFaceSurfFlux(HBEfluxMy + face * BENfp, hM + face * BENfp, BEny + face * BENfp, BENfp);
-			EvaluateFaceSurfFlux(rhoBEfluxMx + face * BENfp, rhoM + face * BENfp, BEnx + face * BENfp, BENfp);
-			EvaluateFaceSurfFlux(rhoBEfluxMy + face * BENfp, rhoM + face * BENfp, BEny + face * BENfp, BENfp);
-			EvaluateFaceNumFlux_Central(HBEfluxSx + face * BENfp, hM + face * BENfp, hP + face * BENfp, BEnx + face * BENfp, BENfp);
-			EvaluateFaceNumFlux_Central(HBEfluxSy + face * BENfp, hM + face * BENfp, hP + face * BENfp, BEny + face * BENfp, BENfp);
-			EvaluateFaceNumFlux_Central(rhoBEfluxSx + face * BENfp, rhoM + face * BENfp, hTrhoP + face * BENfp, BEnx + face * BENfp, BENfp);
-			EvaluateFaceNumFlux_Central(rhoBEfluxSy + face * BENfp, rhoM + face * BENfp, hTrhoP + face * BENfp, BEny + face * BENfp, BENfp);
+		if (MyID == pE3d[adjacentE - 1]) {
+			NdgEdgeType type = (NdgEdgeType)ftype[face];  // boundary condition
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
+				continue; //BEFToE is just itself
+			}
+			else {
+				FetchBoundaryEdgeFacialValue(hM + face * BENfp, h, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
+				FetchBoundaryEdgeFacialValue(rhoM + face * BENfp, rho, BEFToE + 2 * face, BEFToN1 + face * BENfp, Np, BENfp);
+				ImposeBcsForRhoAndH(hTrhoP + face * BENfp, hSp + face * BENfp, hM + face * BENfp, hP + face * BENfp, rhoM + face * BENfp, \
+					fext + face * BENfp, BENfp, BENe, type);
+				/*Fetch variable IEfm and IEfp first*/
+				EvaluateFaceSurfFlux(HBEfluxMx + face * BENfp, hM + face * BENfp, BEnx + face * BENfp, BENfp);
+				EvaluateFaceSurfFlux(HBEfluxMy + face * BENfp, hM + face * BENfp, BEny + face * BENfp, BENfp);
+				EvaluateFaceSurfFlux(rhoBEfluxMx + face * BENfp, rhoM + face * BENfp, BEnx + face * BENfp, BENfp);
+				EvaluateFaceSurfFlux(rhoBEfluxMy + face * BENfp, rhoM + face * BENfp, BEny + face * BENfp, BENfp);
+				EvaluateFaceNumFlux_Central(HBEfluxSx + face * BENfp, hM + face * BENfp, hP + face * BENfp, BEnx + face * BENfp, BENfp);
+				EvaluateFaceNumFlux_Central(HBEfluxSy + face * BENfp, hM + face * BENfp, hP + face * BENfp, BEny + face * BENfp, BENfp);
+				EvaluateFaceNumFlux_Central(rhoBEfluxSx + face * BENfp, rhoM + face * BENfp, hTrhoP + face * BENfp, BEnx + face * BENfp, BENfp);
+				EvaluateFaceNumFlux_Central(rhoBEfluxSy + face * BENfp, rhoM + face * BENfp, hTrhoP + face * BENfp, BEny + face * BENfp, BENfp);
+			}
 		}
 	}
 
@@ -418,13 +440,15 @@ void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX,
 	for (int face = 0; face < IENe; face++) {
 		int adjacentE = (int)IEFToE[2 * face];
 		int adjacentE2 = (int)IEFToE[2 * face + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue;
-		}
-		else {
-			for (int field = 0; field < 4; field++) {
-				StrongFormInnerEdgeRHS(face, IEFToE, IEFToF, Np, K, IENfp, IEFToN1, IEFToN2, BaroclinicIEfluxM + field * IENe*IENfp, \
-					BaroclinicIEfluxP + field * IENe*IENfp, BaroclinicIEfluxS + field * IENe*IENfp, IEJs, IEMb, BaroclinicERHS + field * Np*K*(Nface - 2));
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
+				continue;
+			}
+			else {
+				for (int field = 0; field < 4; field++) {
+					StrongFormInnerEdgeRHS(face, IEFToE, IEFToF, Np, K, IENfp, IEFToN1, IEFToN2, BaroclinicIEfluxM + field * IENe*IENfp, \
+						BaroclinicIEfluxP + field * IENe*IENfp, BaroclinicIEfluxS + field * IENe*IENfp, IEJs, IEMb, BaroclinicERHS + field * Np*K*(Nface - 2));
+				}
 			}
 		}
 	}
@@ -434,13 +458,15 @@ void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX,
 #endif
 	for (int face = 0; face < BENe; face++) {
 		int adjacentE = (int)BEFToE[2 * face];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
-			continue; //BEFToE is just itself
-		}
-		else {
-			for (int field = 0; field < 4; field++) {
-				StrongFormBoundaryEdgeRHS(face, BEFToE, BEFToF, Np, K, BENfp, BEFToN1, BaroclinicBEfluxM + field * BENe*BENfp, \
-					BaroclinicBEfluxS + field * BENe*BENfp, BEJs, BEMb, BaroclinicERHS + field * Np*K*(Nface - 2));
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
+				continue; //BEFToE is just itself
+			}
+			else {
+				for (int field = 0; field < 4; field++) {
+					StrongFormBoundaryEdgeRHS(face, BEFToE, BEFToF, Np, K, BENfp, BEFToN1, BaroclinicBEfluxM + field * BENe*BENfp, \
+						BaroclinicBEfluxS + field * BENe*BENfp, BEJs, BEMb, BaroclinicERHS + field * Np*K*(Nface - 2));
+				}
 			}
 		}
 	}
@@ -449,15 +475,17 @@ void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			for (int field = 0; field < 4; field++) {
-				for (int face = 1; face < Nface - 2; face++) {
-					Add(BaroclinicERHS + field * Np*K*(Nface - 2) + k * Np, BaroclinicERHS + field * Np*K*(Nface - 2) + k * Np, BaroclinicERHS + field * Np*K*(Nface - 2) + face * Np*K + k * Np, Np);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				for (int field = 0; field < 4; field++) {
+					for (int face = 1; face < Nface - 2; face++) {
+						Add(BaroclinicERHS + field * Np*K*(Nface - 2) + k * Np, BaroclinicERHS + field * Np*K*(Nface - 2) + k * Np, BaroclinicERHS + field * Np*K*(Nface - 2) + face * Np*K + k * Np, Np);
+					}
 				}
 			}
-		}
-		else {
-			continue;
+			else {
+				continue;
+			}
 		}
 	}
 
@@ -469,56 +497,63 @@ void GetFirstOrderPartialDerivativeInHorizontalDirection(double *BaroclinicPDPX,
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			for (int field = 0; field < 4; field++) {
-				MultiEdgeContributionByLiftOperator(BaroclinicERHS + field * Np*K*(Nface - 2) + k * Np, BaroclinicTempFacialIntegral + k * Np, &np, &oneI, &np, \
-					&one, invM, &np, &np, &zero, &np, J + k * Np, Np);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				for (int field = 0; field < 4; field++) {
+					MultiEdgeContributionByLiftOperator(BaroclinicERHS + field * Np*K*(Nface - 2) + k * Np, BaroclinicTempFacialIntegral + k * Np, &np, &oneI, &np, \
+						&one, invM, &np, &np, &zero, &np, J + k * Np, Np);
+				}
+		    }
+			else {
+				continue;
+			}
+	    }
+	}
+
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(DG_THREADS)
+#endif
+	for (int k = 0; k < K; k++) {
+		if (MyID == pE3d[k]) {
+			/*$\bold{r_x}\cdot (Dr*h)+\bold{s_x}\cdot (Ds*h)$*/
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				GetVolumnIntegral2d(BaroclinicPDPX + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
+					Dr, Ds, &np, h + k * Np, &np, &zero, &np, rx + k * Np, sx + k * Np);
+
+				GetVolumnIntegral2d(BaroclinicPDPY + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
+					Dr, Ds, &np, h + k * Np, &np, &zero, &np, ry + k * Np, sy + k * Np);
+
+				GetVolumnIntegral2d(BaroclinicPRHOPX + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
+					Dr, Ds, &np, rho + k * Np, &np, &zero, &np, rx + k * Np, sx + k * Np);
+
+				GetVolumnIntegral2d(BaroclinicPRHOPY + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
+					Dr, Ds, &np, rho + k * Np, &np, &zero, &np, ry + k * Np, sy + k * Np);
+			}
+			else {
+				continue;
 			}
 		}
-		else {
-			continue;
-		}
 	}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		/*$\bold{r_x}\cdot (Dr*h)+\bold{s_x}\cdot (Ds*h)$*/
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			GetVolumnIntegral2d(BaroclinicPDPX + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, &np, h + k * Np, &np, &zero, &np, rx + k * Np, sx + k * Np);
+		if (MyID == pE3d[k]) {
+			if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
+				Minus(BaroclinicPDPX + k * Np, BaroclinicPDPX + k * Np, BaroclinicERHS + k * Np, Np);
 
-			GetVolumnIntegral2d(BaroclinicPDPY + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, &np, h + k * Np, &np, &zero, &np, ry + k * Np, sy + k * Np);
+				Minus(BaroclinicPRHOPX + k * Np, BaroclinicPRHOPX + k * Np, BaroclinicERHS + Np * K*(Nface - 2) + k * Np, Np);
 
-			GetVolumnIntegral2d(BaroclinicPRHOPX + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, &np, rho + k * Np, &np, &zero, &np, rx + k * Np, sx + k * Np);
+				Minus(BaroclinicPDPY + k * Np, BaroclinicPDPY + k * Np, BaroclinicERHS + 2 * Np*K*(Nface - 2) + k * Np, Np);
 
-			GetVolumnIntegral2d(BaroclinicPRHOPY + k * Np, BaroclinicTempVolumeIntegral + k * Np, &np, &oneI, &np, &one, \
-				Dr, Ds, &np, rho + k * Np, &np, &zero, &np, ry + k * Np, sy + k * Np);
+				Minus(BaroclinicPRHOPY + k * Np, BaroclinicPRHOPY + k * Np, BaroclinicERHS + 3 * Np*K*(Nface - 2) + k * Np, Np);
+			}
+			else {
+				continue;
+			}
 		}
-		else {
-			continue;
-		}
-	}
 
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(DG_THREADS)
-#endif
-	for (int k = 0; k < K; k++) {
-		if ((NdgRegionType)Status3d[k] == NdgRegionWet) {
-			Minus(BaroclinicPDPX + k * Np, BaroclinicPDPX + k * Np, BaroclinicERHS + k * Np, Np);
-
-			Minus(BaroclinicPRHOPX + k * Np, BaroclinicPRHOPX + k * Np, BaroclinicERHS + Np * K*(Nface - 2) + k * Np, Np);
-
-			Minus(BaroclinicPDPY + k * Np, BaroclinicPDPY + k * Np, BaroclinicERHS + 2 * Np*K*(Nface - 2) + k * Np, Np);
-
-			Minus(BaroclinicPRHOPY + k * Np, BaroclinicPRHOPY + k * Np, BaroclinicERHS + 3 * Np*K*(Nface - 2) + k * Np, Np);
-		}
-		else {
-			continue;
-		}
 	}
 
 }
@@ -538,27 +573,23 @@ void ImposeBcsForRhoAndH(double *srcAndDest, double *hS, double *hM, double *hP,
 		//DotCriticalDivide(srcAndDest, fext + 3*BENe*BENfp, &Hcrit, hM, BENfp);
 		//S
 		//DotCriticalDivide(hS, fext + 4 * BENe*BENfp, &Hcrit, hM, BENfp);
-		for (int i = 0; i < BENfp; i++) {
-			srcAndDest[i] = rhoM[i];
-			hP[i] = hM[i];
-		}
-		//if (!strcmp(EosType, "Jackett05")) {
-		//	for (int i = 0; i < BENfp; i++) {
-		//		hP[i] = hM[i];
-		//		EosByFeistel(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
-		//	}
-		//}
+//		if (!strcmp(EosType, "Jackett05")) {
+			for (int i = 0; i < BENfp; i++) {
+				srcAndDest[i] = rhoM[i];
+				hP[i] = hM[i];
+			}
+//		}
 		//else if (!strcmp(EosType, "UNESCO83")) {
 		//	for (int i = 0; i < BENfp; i++) {
 		//		hP[i] = hM[i];
-		//		EosByUNESCO(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
+		//		EosByUNESCO(srcAndDest + i, max(*(srcAndDest + i), 0.0), max(*(hS + i), 0.0));
 		//	}
 		//}
 		//else if (!strcmp(EosType, "Linear")) {
-			//for (int i = 0; i < BENfp; i++) {
-			//	hP[i] = hM[i];
-			//	EosByLinear(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0), rho0, T0, S0, alphaT, betaS);
-			//}
+		//	for (int i = 0; i < BENfp; i++) {
+		//		hP[i] = hM[i];
+		//		EosByLinear(srcAndDest + i, max(*(srcAndDest + i), 0.0), max(*(hS + i), 0.0), rho0, T0, S0, alphaT, betaS);
+		//	}
 		//}
 		//else {
 		//	printf("Equation of state(EOS) needs to be pointed for this part!\n");
@@ -573,23 +604,23 @@ void ImposeBcsForRhoAndH(double *srcAndDest, double *hS, double *hM, double *hP,
 			srcAndDest[i] = rhoM[i];
 			hP[i] = hM[i];
 		}
-		//if (!strcmp(EosType, "Jackett05")) {
-		//	for (int i = 0; i < BENfp; i++) {
-		//		hP[i] = fext[2 * BENe*BENfp +i];
-		//		EosByFeistel(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
-		//	}
-		//}
+//		if (!strcmp(EosType, "Jackett05")) {
+			//for (int i = 0; i < BENfp; i++) {
+			//	hP[i] = fext[2 * BENe*BENfp +i];
+			//	EosByFeistel(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
+			//}
+//		}
 		//else if (!strcmp(EosType, "UNESCO83")) {
 		//	for (int i = 0; i < BENfp; i++) {
 		//		hP[i] = fext[2 * BENe*BENfp + i];
-		//		EosByUNESCO(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
+		//		EosByUNESCO(srcAndDest + i, max(*(srcAndDest + i), 0.0), max(*(hS + i), 0.0));
 		//	}
 		//}
 		//else if (!strcmp(EosType, "Linear")) {
-			//for (int i = 0; i < BENfp; i++) {
-			//	hP[i] = fext[2 * BENe*BENfp + i];
-			//	EosByLinear(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0), rho0, T0, S0, alphaT, betaS);
-			//}
+		//	for (int i = 0; i < BENfp; i++) {
+		//		hP[i] = fext[2 * BENe*BENfp + i];
+		//		EosByLinear(srcAndDest + i, max(*(srcAndDest + i), 0.0), max(*(hS + i), 0.0), rho0, T0, S0, alphaT, betaS);
+		//	}
 		//}
 		//else {
 		//	printf("Equation of state(EOS) needs to be pointed for this part!\n");
@@ -604,12 +635,12 @@ void ImposeBcsForRhoAndH(double *srcAndDest, double *hS, double *hM, double *hP,
 			srcAndDest[i] = rhoM[i];
 			hP[i] = hM[i];
 		}
-		//if (!strcmp(EosType, "Jackett05")) {
-		//	for (int i = 0; i < BENfp; i++) {
-		//		hP[i] = fext[2 * BENfp*BENe + i];
-		//		EosByFeistel(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
-		//	}
-		//}
+//		if (!strcmp(EosType, "Jackett05")) {
+			//for (int i = 0; i < BENfp; i++) {
+			//	hP[i] = fext[2 * BENfp*BENe + i];
+			//	EosByFeistel(srcAndDest + i, fmax(*(srcAndDest + i), 0.0), fmax(*(hS + i), 0.0));
+			//}
+//		}
 		//else if (!strcmp(EosType, "UNESCO83")) {
 		//	for (int i = 0; i < BENfp; i++) {
 		//		hP[i] = fext[2 * BENfp*BENe + i];

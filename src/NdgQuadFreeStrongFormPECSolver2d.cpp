@@ -35,7 +35,7 @@ NdgQuadFreeStrongFormPECSolver2d::~NdgQuadFreeStrongFormPECSolver2d()
 {
 };
 
-void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, double *frhs_, double *fext_, int *varFieldIndex_, double *fphys2d_, double *fext2d_)
+void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, double *frhs_, double *fext_, int *varFieldIndex_, double *fphys2d_, double *fext2d_, int*pE2d, int*pE3d, int MyID)
 {
 	//mexAtExit(&MyExit);
 	/*Properties contained in mesh2d*/
@@ -179,18 +179,20 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++){                /*  2D Volume Integral Part  */
-		if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
-			continue;
-		}
-		else  {
-			/*$\bold{r_x}\cdot (Dr*hu2d)+\bold{s_x}\cdot (Ds*hu2d)$*/
-			GetVolumnIntegral2d(PCEUpdatedVolumeIntegralX + k * Np2d, PCEUpdatedTempVolumeIntegralX + k * Np2d, &np, &oneI, &np, &one, \
-				Dr2d, Ds2d, &np, hu2d + k * Np2d, &np, &zero, &np, rx2d + k * Np2d, sx2d + k * Np2d);
-			/*$\bold{r_y}\cdot (Dr*hv2d)+\bold{s_y}\cdot (Ds*hv2d)$*/
-			GetVolumnIntegral2d(PCEUpdatedVolumeIntegralY + k * Np2d, PCEUpdatedTempVolumeIntegralY + k * Np2d, &np, &oneI, &np, &one, \
-				Dr2d, Ds2d, &np, hv2d + k * Np2d, &np, &zero, &np, ry2d + k * Np2d, sy2d + k * Np2d);
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				/*$\bold{r_x}\cdot (Dr*hu2d)+\bold{s_x}\cdot (Ds*hu2d)$*/
+				GetVolumnIntegral2d(PCEUpdatedVolumeIntegralX + k * Np2d, PCEUpdatedTempVolumeIntegralX + k * Np2d, &np, &oneI, &np, &one, \
+					Dr2d, Ds2d, &np, hu2d + k * Np2d, &np, &zero, &np, rx2d + k * Np2d, sx2d + k * Np2d);
+				/*$\bold{r_y}\cdot (Dr*hv2d)+\bold{s_y}\cdot (Ds*hv2d)$*/
+				GetVolumnIntegral2d(PCEUpdatedVolumeIntegralY + k * Np2d, PCEUpdatedTempVolumeIntegralY + k * Np2d, &np, &oneI, &np, &one, \
+					Dr2d, Ds2d, &np, hv2d + k * Np2d, &np, &zero, &np, ry2d + k * Np2d, sy2d + k * Np2d);
 
-			Add(RHS + k * Np2d, PCEUpdatedVolumeIntegralX + k * Np2d, PCEUpdatedVolumeIntegralY + k * Np2d, Np2d);
+				Add(RHS + k * Np2d, PCEUpdatedVolumeIntegralX + k * Np2d, PCEUpdatedVolumeIntegralY + k * Np2d, Np2d);
+			}
 		}
 	}
 	/*Two dimensional inner edge flux part*/
@@ -201,15 +203,17 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 	for (int e = 0; e < IENe2d; e++){
 		int adjacentE = (int)IEFToE2d[2 * e];
 		int adjacentE2 = (int)IEFToE2d[2 * e + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue; //no wet element 
-		}
-		else {
-			FetchInnerEdgeFacialValue(IEhM2d + e * IENfp2d, IEhP2d + e * IENfp2d, h2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
-			FetchInnerEdgeFacialValue(IEhuM2d + e * IENfp2d, IEhuP2d + e * IENfp2d, hu2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
-			FetchInnerEdgeFacialValue(IEhvM2d + e * IENfp2d, IEhvP2d + e * IENfp2d, hv2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
-			GetFacialFluxTerm2d(PCEUpdatedIEFluxM2d + e * IENfp2d, IEhuM2d + e * IENfp2d, IEhvM2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
-			GetFacialFluxTerm2d(PCEUpdatedIEFluxP2d + e * IENfp2d, IEhuP2d + e * IENfp2d, IEhvP2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
+		if ((MyID == pE2d[adjacentE - 1]) || (MyID == pE2d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status2d[adjacentE2 - 1] == NdgRegionDry) {
+				continue; //no wet element 
+			}
+			else {
+				FetchInnerEdgeFacialValue(IEhM2d + e * IENfp2d, IEhP2d + e * IENfp2d, h2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
+				FetchInnerEdgeFacialValue(IEhuM2d + e * IENfp2d, IEhuP2d + e * IENfp2d, hu2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
+				FetchInnerEdgeFacialValue(IEhvM2d + e * IENfp2d, IEhvP2d + e * IENfp2d, hv2d, IEFToE2d + 2 * e, IEFToN12d + e * IENfp2d, IEFToN22d + e * IENfp2d, Np2d, IENfp2d);
+				GetFacialFluxTerm2d(PCEUpdatedIEFluxM2d + e * IENfp2d, IEhuM2d + e * IENfp2d, IEhvM2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
+				GetFacialFluxTerm2d(PCEUpdatedIEFluxP2d + e * IENfp2d, IEhuP2d + e * IENfp2d, IEhvP2d + e * IENfp2d, IEnx2d + e * IENfp2d, IEny2d + e * IENfp2d, IENfp2d);
+			}
 		}
 	}
 
@@ -228,19 +232,21 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #endif
 	for (int e = 0; e < BENe2d; e++){
 		int adjacentE = (int)BEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry) {
-			continue; //not wet 
-		}
-		else {
-			NdgEdgeType type = (NdgEdgeType)ftype2d[e];  // boundary condition
-			FetchBoundaryEdgeFacialValue(BEhM2d + e * BENfp2d, h2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			FetchBoundaryEdgeFacialValue(BEhuM2d + e * BENfp2d, hu2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			FetchBoundaryEdgeFacialValue(BEhvM2d + e * BENfp2d, hv2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			FetchBoundaryEdgeFacialValue(PCEUpdatedBEzM2d + e * BENfp2d, z2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
-			ImposeBoundaryCondition(&gra, type, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, PCEUpdatedBEfm2d + e * BENfp2d, PCEUpdatedBEfp2d + e * BENfp2d, \
-				PCEUpdatedBEzM2d + e * BENfp2d, PCEUpdatedBEzP2d + e * BENfp2d, fext2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
-			EvaluateHydroStaticReconstructValue(Hcrit, PCEUpdatedBEfm2d + e * BENfp2d, PCEUpdatedBEfp2d + e * BENfp2d, PCEUpdatedBEzM2d + e * BENfp2d, PCEUpdatedBEzP2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
-			GetFacialFluxTerm2d(PCEUpdatedBEFluxM2d + e * BENfp2d, BEhuM2d + e * BENfp2d, BEhvM2d + e * BENfp2d, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, BENfp2d);
+		if (MyID == pE2d[adjacentE - 1]) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry) {
+				continue; //not wet 
+			}
+			else {
+				NdgEdgeType type = (NdgEdgeType)ftype2d[e];  // boundary condition
+				FetchBoundaryEdgeFacialValue(BEhM2d + e * BENfp2d, h2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				FetchBoundaryEdgeFacialValue(BEhuM2d + e * BENfp2d, hu2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				FetchBoundaryEdgeFacialValue(BEhvM2d + e * BENfp2d, hv2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				FetchBoundaryEdgeFacialValue(PCEUpdatedBEzM2d + e * BENfp2d, z2d, BEFToE2d + 2 * e, BEFToN12d + e * BENfp2d, Np2d, BENfp2d);
+				ImposeBoundaryCondition(&gra, type, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, PCEUpdatedBEfm2d + e * BENfp2d, PCEUpdatedBEfp2d + e * BENfp2d, \
+					PCEUpdatedBEzM2d + e * BENfp2d, PCEUpdatedBEzP2d + e * BENfp2d, fext2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
+				EvaluateHydroStaticReconstructValue(Hcrit, PCEUpdatedBEfm2d + e * BENfp2d, PCEUpdatedBEfp2d + e * BENfp2d, PCEUpdatedBEzM2d + e * BENfp2d, PCEUpdatedBEzP2d + e * BENfp2d, BENfp2d, Nfield, BENe2d);
+				GetFacialFluxTerm2d(PCEUpdatedBEFluxM2d + e * BENfp2d, BEhuM2d + e * BENfp2d, BEhvM2d + e * BENfp2d, BEnx2d + e * BENfp2d, BEny2d + e * BENfp2d, BENfp2d);
+			}
 		}
 	}
 
@@ -256,14 +262,16 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 	for (int e = 0; e < IENe3d; e++){
 		int adjacentE = (int)IEFToE3d[2 * e];
 		int adjacentE2 = (int)IEFToE3d[2 * e + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue; //不是湿单元旁边单元为湿单元才计算面积分
-		}
-		else {
-			FetchInnerEdgeFacialValue(IEhM3d + e * IENfp3d, IEhP3d + e * IENfp3d, h3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
-			FetchInnerEdgeFacialValue(IEhuM3d + e * IENfp3d, IEhuP3d + e * IENfp3d, hu3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
-			FetchInnerEdgeFacialValue(IEhvM3d + e * IENfp3d, IEhvP3d + e * IENfp3d, hv3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
-			GetPCENumericalFluxTerm_HLLC_LAI(PCEUpdatedIEFluxS3d + e * IENfp3d, PCEUpdatedIEfm3d + e * IENfp3d, PCEUpdatedIEfp3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, &gra, Hcrit, IENfp3d, IENe3d);
+		if ((MyID == pE3d[adjacentE - 1]) || (MyID == pE3d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status3d[adjacentE2 - 1] == NdgRegionDry) {
+				continue; //不是湿单元旁边单元为湿单元才计算面积分
+			}
+			else {
+				FetchInnerEdgeFacialValue(IEhM3d + e * IENfp3d, IEhP3d + e * IENfp3d, h3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
+				FetchInnerEdgeFacialValue(IEhuM3d + e * IENfp3d, IEhuP3d + e * IENfp3d, hu3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
+				FetchInnerEdgeFacialValue(IEhvM3d + e * IENfp3d, IEhvP3d + e * IENfp3d, hv3d, IEFToE3d + 2 * e, IEFToN13d + e * IENfp3d, IEFToN23d + e * IENfp3d, Np3d, IENfp3d);
+				GetPCENumericalFluxTerm_HLLC_LAI(PCEUpdatedIEFluxS3d + e * IENfp3d, PCEUpdatedIEfm3d + e * IENfp3d, PCEUpdatedIEfp3d + e * IENfp3d, IEnx3d + e * IENfp3d, IEny3d + e * IENfp3d, &gra, Hcrit, IENfp3d, IENe3d);
+			}
 		}
 	}
 
@@ -276,11 +284,13 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 	for (int e = 0; e < IENe2d; e++){
 		int adjacentE = (int)IEFToE2d[2 * e];
 		int adjacentE2 = (int)IEFToE2d[2 * e + 1];
-		if ((NdgRegionType)Status3d[adjacentE - 1] != NdgRegionWet || (NdgRegionType)Status3d[adjacentE2 - 1] != NdgRegionWet) {
-			continue; 
-		}
-		else {
-			VerticalFaceColumnIntegral(PCEUpdatedIEFluxS2d + e * IENfp2d, PCEUpdatedIEFluxS3d + e * NLayer*IENfp3d, PCEUpdatedIEfmod + e * IENfp3d, InvV2d, (int)IENfp3d, IEJz3d + e * NLayer*IENfp3d, NLayer, V1d, (int)IENfp2d, (int)(*(IEFToF3d + e * NLayer * 2)));
+		if ((MyID == pE2d[adjacentE - 1]) || (MyID == pE2d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status2d[adjacentE2 - 1] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				VerticalFaceColumnIntegral(PCEUpdatedIEFluxS2d + e * IENfp2d, PCEUpdatedIEFluxS3d + e * NLayer*IENfp3d, PCEUpdatedIEfmod + e * IENfp3d, InvV2d, (int)IENfp3d, IEJz3d + e * NLayer*IENfp3d, NLayer, V1d, (int)IENfp2d, (int)(*(IEFToF3d + e * NLayer * 2)));
+			}
 		}
 	}
 
@@ -295,20 +305,22 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #endif
 	for (int e = 0; e < BENe3d; e++){
 		int adjacentE = (int)BEFToE3d[2 * e];
-		if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
-			continue;  
-		}
-		else {
-			NdgEdgeType type = (NdgEdgeType)ftype3d[e];  // boundary condition
-			FetchBoundaryEdgeFacialValue(BEhuM3d + e * BENfp3d, hu3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
-			FetchBoundaryEdgeFacialValue(BEhvM3d + e * BENfp3d, hv3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
-			FetchBoundaryEdgeFacialValue(BEhM3d + e * BENfp3d, h3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
-			FetchBoundaryEdgeFacialValue(PCEUpdatedBEzM3d + e * BENfp3d, z3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+		if (MyID == pE3d[adjacentE - 1]) {
+			if ((NdgRegionType)Status3d[adjacentE - 1] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				NdgEdgeType type = (NdgEdgeType)ftype3d[e];  // boundary condition
+				FetchBoundaryEdgeFacialValue(BEhuM3d + e * BENfp3d, hu3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+				FetchBoundaryEdgeFacialValue(BEhvM3d + e * BENfp3d, hv3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+				FetchBoundaryEdgeFacialValue(BEhM3d + e * BENfp3d, h3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
+				FetchBoundaryEdgeFacialValue(PCEUpdatedBEzM3d + e * BENfp3d, z3d, BEFToE3d + 2 * e, BEFToN13d + e * BENfp3d, Np3d, BENfp3d);
 
-			ImposeBoundaryCondition(&gra, type, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, PCEUpdatedBEfm3d + e * BENfp3d, PCEUpdatedBEfp3d + e * BENfp3d, \
-				PCEUpdatedBEzM3d + e * BENfp3d, PCEUpdatedBEzP3d + e * BENfp3d, fext3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
-			EvaluateHydroStaticReconstructValue(Hcrit, PCEUpdatedBEfm3d + e * BENfp3d, PCEUpdatedBEfp3d + e * BENfp3d, PCEUpdatedBEzM3d + e * BENfp3d, PCEUpdatedBEzP3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
-			GetPCENumericalFluxTerm_HLLC_LAI(PCEUpdatedBEFluxS3d + e * BENfp3d, PCEUpdatedBEfm3d + e * BENfp3d, PCEUpdatedBEfp3d + e * BENfp3d, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, &gra, Hcrit, BENfp3d, BENe3d);
+				ImposeBoundaryCondition(&gra, type, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, PCEUpdatedBEfm3d + e * BENfp3d, PCEUpdatedBEfp3d + e * BENfp3d, \
+					PCEUpdatedBEzM3d + e * BENfp3d, PCEUpdatedBEzP3d + e * BENfp3d, fext3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
+				EvaluateHydroStaticReconstructValue(Hcrit, PCEUpdatedBEfm3d + e * BENfp3d, PCEUpdatedBEfp3d + e * BENfp3d, PCEUpdatedBEzM3d + e * BENfp3d, PCEUpdatedBEzP3d + e * BENfp3d, BENfp3d, Nfield, BENe3d);
+				GetPCENumericalFluxTerm_HLLC_LAI(PCEUpdatedBEFluxS3d + e * BENfp3d, PCEUpdatedBEfm3d + e * BENfp3d, PCEUpdatedBEfp3d + e * BENfp3d, BEnx3d + e * BENfp3d, BEny3d + e * BENfp3d, &gra, Hcrit, BENfp3d, BENe3d);
+			}
 		}
 	}
 
@@ -319,11 +331,13 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #endif
 	for (int e = 0; e < BENe2d; e++){
 		int adjacentE = (int)BEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry) {
-			continue;  
-		}
-		else {
-			VerticalFaceColumnIntegral(PCEUpdatedBEFluxS2d + e * BENfp2d, PCEUpdatedBEFluxS3d + e * NLayer*BENfp3d, PCEUpdatedBEfmod + e * BENfp3d, InvV2d, (int)BENfp3d, BEJz3d + e * NLayer*BENfp3d, NLayer, V1d, (int)BENfp2d, (int)(*(BEFToF3d + e * NLayer * 2)));
+		if (MyID == pE2d[adjacentE - 1]) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				VerticalFaceColumnIntegral(PCEUpdatedBEFluxS2d + e * BENfp2d, PCEUpdatedBEFluxS3d + e * NLayer*BENfp3d, PCEUpdatedBEfmod + e * BENfp3d, InvV2d, (int)BENfp3d, BEJz3d + e * NLayer*BENfp3d, NLayer, V1d, (int)BENfp2d, (int)(*(BEFToF3d + e * NLayer * 2)));
+			}
 		}
 	}
     
@@ -333,11 +347,13 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 	for (int e = 0; e < IENe2d; e++){
 		int adjacentE = (int)IEFToE2d[2 * e];
 		int adjacentE2 = (int)IEFToE2d[2 * e + 1];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status2d[adjacentE2 - 1] == NdgRegionDry) {
-			continue; 
-		}
-		else {
-			StrongFormInnerEdgeRHS(e, IEFToE2d, IEFToF2d, Np2d, K2d, IENfp2d, IEFToN12d, IEFToN22d, PCEUpdatedIEFluxM2d, PCEUpdatedIEFluxP2d, PCEUpdatedIEFluxS2d, IEJs2d, IEMb2d, PCEUpdatedERHS2d);
+		if ((MyID == pE2d[adjacentE - 1]) || (MyID == pE2d[adjacentE2 - 1])) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry && (NdgRegionType)Status2d[adjacentE2 - 1] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				StrongFormInnerEdgeRHS(e, IEFToE2d, IEFToF2d, Np2d, K2d, IENfp2d, IEFToN12d, IEFToN22d, PCEUpdatedIEFluxM2d, PCEUpdatedIEFluxP2d, PCEUpdatedIEFluxS2d, IEJs2d, IEMb2d, PCEUpdatedERHS2d);
+			}
 		}
 	}
 
@@ -346,11 +362,13 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #endif   
 	for (int e = 0; e < BENe2d; e++){
 		int adjacentE = (int)BEFToE2d[2 * e];
-		if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry) {
-			continue; //Both dry 
-		}
-		else {
-			StrongFormBoundaryEdgeRHS(e, BEFToE2d, BEFToF2d, Np2d, K2d, BENfp2d, BEFToN12d, PCEUpdatedBEFluxM2d, PCEUpdatedBEFluxS2d, BEJs2d, BEMb2d, PCEUpdatedERHS2d);
+		if (MyID == pE2d[adjacentE - 1]) {
+			if ((NdgRegionType)Status2d[adjacentE - 1] == NdgRegionDry) {
+				continue; //Both dry 
+			}
+			else {
+				StrongFormBoundaryEdgeRHS(e, BEFToE2d, BEFToF2d, Np2d, K2d, BENfp2d, BEFToN12d, PCEUpdatedBEFluxM2d, PCEUpdatedBEFluxS2d, BEJs2d, BEMb2d, PCEUpdatedERHS2d);
+			}
 		}
 	}
 
@@ -358,8 +376,10 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
     for (int k=0; k < K2d; k++){
-		for (int face = 1; face<Nface; face++){
-			Add(PCEUpdatedERHS2d + k*Np2d, PCEUpdatedERHS2d + k*Np2d, PCEUpdatedERHS2d + face*Np2d*K2d + k*Np2d, Np2d);
+		if (MyID == pE2d[k]) {
+			for (int face = 1; face < Nface; face++) {
+				Add(PCEUpdatedERHS2d + k * Np2d, PCEUpdatedERHS2d + k * Np2d, PCEUpdatedERHS2d + face * Np2d*K2d + k * Np2d, Np2d);
+			}
 		}
 	}
 
@@ -368,12 +388,14 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++) {
-		if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
-			continue;
-		}
-		else {
-			MultiEdgeContributionByLiftOperator(PCEUpdatedERHS2d + k * Np2d, PCEUpdatedPCETempFacialIntegral + k * Np2d, &np, &oneI, &np, \
-				&one, invM2d, &np, &np, &zero, &np, J2d + k * Np2d, Np2d);
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				MultiEdgeContributionByLiftOperator(PCEUpdatedERHS2d + k * Np2d, PCEUpdatedPCETempFacialIntegral + k * Np2d, &np, &oneI, &np, \
+					&one, invM2d, &np, &np, &zero, &np, J2d + k * Np2d, Np2d);
+			}
 		}
 	}
 
@@ -383,11 +405,13 @@ void NdgQuadFreeStrongFormPECSolver2d::evaluatePCERHSUpdated(double *fphys_, dou
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++){
-		if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
-			continue;
-		}
-		else {
-			Minus(RHS + k * Np2d, PCEUpdatedERHS2d + k * Np2d, RHS + k * Np2d, Np2d);
+		if (MyID == pE2d[k]) {
+			if ((NdgRegionType)Status2d[k] == NdgRegionDry) {
+				continue;
+			}
+			else {
+				Minus(RHS + k * Np2d, PCEUpdatedERHS2d + k * Np2d, RHS + k * Np2d, Np2d);
+			}
 		}
 	}
 

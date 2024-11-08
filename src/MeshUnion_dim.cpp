@@ -55,8 +55,6 @@ void MeshUnion_dim::ncdim_read()
 		// fclose(fp);
 	}
 
-	std::cout<<" The 3D DG-FEM Hydrodynamic model by CZR in 2022."<<std::endl;
-
 	NcVar *K_v = dataFile.get_var("K");
 	NcVar *Nv_v = dataFile.get_var("Nv");
 	NcVar *Nlayer_v = dataFile.get_var("Nlayer");//chenzereng

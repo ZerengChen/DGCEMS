@@ -7,6 +7,6 @@
 extern MeshUnion mesh;
 extern const MeshUnion *meshunion;
 
-void CalculateDensityField(double *fphys);
+void CalculateDensityField(double *fphys,int*,int);
 
 #endif

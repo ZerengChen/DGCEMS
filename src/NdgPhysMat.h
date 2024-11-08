@@ -1,6 +1,6 @@
 #pragma once
 #include"GlobalVar.h"
-#include"AbstractOutputFile.h"
+//#include"AbstractOutputFile.h"
 #include"NdgSWEHorizSmagrinskyDiffSolver.h"
 #include"NdgQuadFreeStrongFormAdvSolver3d.h"
 #include"NdgQuadFreeStrongFormPECSolver2d.h"
@@ -11,8 +11,8 @@
 #include "NdgMemory.h"
 #include "VerticalRepmatFacialValue.h"
 #include <fstream>
-//#include<chrono>
-//#include<vector>
+#include<vector>
+#include<string.h>
 
 using namespace std;
 extern MeshUnion mesh;
@@ -23,25 +23,26 @@ public:
 	NdgPhysMat();
 	~NdgPhysMat();
 
-	void matSolver();
-	void matEvaluateIMEXRK222();
+	void matSolver(int*,int*, int*);
+	void matEvaluateIMEXRK222(int*, int*, int*);
 
 	void UpdateExternalField(double tloc, double *fphys2d, double *fphys);
-	void EvaluateRHS_Nowave(double *fphys, double *frhs, double time, double *fext, int *varFieldIndex, double *fphys2d, double *fext2d, double *frhs2d);
+	void EvaluateRHS_Nowave(double *fphys, double *frhs, double time, double *fext, int *varFieldIndex, double *fphys2d, double *fext2d, double *frhs2d, int* pE2d, int*pE3d, int MyID);
 #ifdef COUPLING_SWAN
 	void EvaluateRHS(double *fphys, double *frhs, double time, double *fext, int *varFieldIndex, double *fphys2d, double *fext2d, double *frhs2d, \
-		double*HS, double*T, double*DIR, double*QB, double*WLEN, double*UBOT, double*TMBOT);
+		double*HS, double*T, double*DIR, double*QB, double*WLEN, double*UBOT, double*TMBOT, int* pE2d, int*pE3d, int MyID);
 #endif
 	void UpdateOutputResult(double &time, double *fphys2d, double *fphys);
 
-	void addTecdata(double *, double*, vector<int>, vector<int>, int);
+	void addTecdata(double *, double*, vector<int>, vector<int>, int,int*,int*,int*);
+
 
 protected:
 
 	//SWEAbstract3d sweabstract3d;
 	//SWEConventional3d sweconventional3d;
 	NdgQuadFreeStrongFormAdvSolver3d ndgquadfreestrongformadvsolver3d;
-	AbstractOutputFile abstractoutputfile;
+	//AbstractOutputFile abstractoutputfile;
 	NdgSWEHorizSmagrinskyDiffSolver ndgswehorizsmagrinskydiffsolver;
 	NdgQuadFreeStrongFormPECSolver2d ndgquadfreestrongformPECsolver2d;
 	NdgSourceTermSolver3d ndgsourcetermsolver3d;
@@ -69,7 +70,8 @@ protected:
 	vector<int> sizeof_PerNode;
 
 	//double tidalinterval;
-
+	int MyID;
+	int MPIsize;
 	//double ftime;
 	int outputIntervalNum;
 	int *Np;
@@ -92,6 +94,7 @@ protected:
 	int *Nface, *Nface2d;
 	int *Nlayer3d;
 	double startTime, finalTime;
+	double *IEFToE3d, *IEFToE2d;
 
 #ifdef COUPLING_SWAN
 	//7 vars for coupling

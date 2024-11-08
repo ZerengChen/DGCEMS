@@ -24,9 +24,9 @@ void JudgingNodeAndElementWD(double *source_h2d, double *source_hu2d, double *so
 
 void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int NLayer, int Np2d, int K2d, int k_, NdgRegionType type);
 
-void UpdateWetDryState(double *fphys_, double *fphys2d_, double * Limited_huhv2D, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d);
+void UpdateWetDryState(double *fphys_, double *fphys2d_, double * Limited_huhv2D, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d, int *, int*, int);
 
 //****************  Here a 2-dimensional limiter is added to control the steady of field2d. ********************
-void Limiter2d(double *, int, double *);
+void Limiter2d(double *, int*, int);
 
 #endif

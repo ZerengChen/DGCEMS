@@ -11,7 +11,7 @@ VerticalColumnIntegralField::~VerticalColumnIntegralField()
 {
 }
 
-void VerticalColumnIntegralField::EvaluateVerticalIntegral(double *fphys2d, double *fphys){
+void VerticalColumnIntegralField::EvaluateVerticalIntegral(double *fphys2d, double *fphys,int*pE2d,int MyID){
 	int Np2d = *(meshunion->mesh2d_p->mesh2dcell_p->Np2d);
 	int K2d = *(meshunion->mesh2d_p->K2d);
 	double *V2d = meshunion->mesh2d_p->mesh2dcell_p->V2d;
@@ -35,9 +35,11 @@ void VerticalColumnIntegralField::EvaluateVerticalIntegral(double *fphys2d, doub
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int i = 0; i < K2d; i++){
-		VerticalColumnIntegralField3d(field2d + i*Np2d, Np2d, V2d, Tempfield2d + i*Np2d, \
-			Tempfield3d + i*Np3d*NLayer, field3d + i*Np3d*NLayer, Jz + i*Np3d*NLayer, \
-			fmod + i*Np3d*NLayer, InvV3d, Np3d, NLayer);
+		if (MyID == pE2d[i]) {
+			VerticalColumnIntegralField3d(field2d + i * Np2d, Np2d, V2d, Tempfield2d + i * Np2d, \
+				Tempfield3d + i * Np3d*NLayer, field3d + i * Np3d*NLayer, Jz + i * Np3d*NLayer, \
+				fmod + i * Np3d*NLayer, InvV3d, Np3d, NLayer);
+		}
 	}
 	free(Tempfield3d);
 	free(Tempfield2d);

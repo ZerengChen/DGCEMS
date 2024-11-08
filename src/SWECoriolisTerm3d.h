@@ -12,7 +12,7 @@ public:
 	SWECoriolisTerm3d();
 	~SWECoriolisTerm3d();
 
-	void EvaluateCoriolisTermRHS(double *fphys, double *frhs);
+	void EvaluateCoriolisTermRHS(double *fphys, double *frhs, int*pE3d, int MyID);
 
 	typedef enum {
 		NdgRegionNormal = 1,

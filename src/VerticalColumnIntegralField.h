@@ -12,7 +12,7 @@ public:
 	VerticalColumnIntegralField();
 	~VerticalColumnIntegralField();
 
-	void EvaluateVerticalIntegral(double *fphys2d, double *fphys);
+	void EvaluateVerticalIntegral(double *fphys2d, double *fphys,int*,int);
 
 
 };

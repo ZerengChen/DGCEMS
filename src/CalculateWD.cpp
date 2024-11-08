@@ -146,10 +146,12 @@ void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int
 		
 		for (int n = 0; n < Np2d; n++) {
 			h2d[n] = _h_mean + theta * (h2d[n] - _h_mean);
-			//hu2d[n] = _hu_mean / _h_mean * h2d[n];
-			//hv2d[n] = _hv_mean / _h_mean * h2d[n];
-			hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
-			hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
+			hu2d[n] = _hu_mean / _h_mean * h2d[n];
+			hv2d[n] = _hv_mean / _h_mean * h2d[n];
+			//hu2d[n] = 0.0;
+			//hv2d[n] = 0.0;
+			//hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
+			//hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
 
 			if (h2d[n] <= Hcrit) {
 				hu2d[n] = 0.0;
@@ -159,25 +161,30 @@ void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int
 	}
 	else {
 		type2d_ = NdgRegionDry;
-		//for (int n = 0; n < Np2d; n++) {
-		//	if (h2d[n] < 0.0) {
-		//		h2d[n] = 0.0;
-		//	}
+		for (int n = 0; n < Np2d; n++) {
+			if (h2d[n] < Hcrit) {
+				h2d[n] = 0.0;
+			}
 
-		//	hu2d[n] = 0.0;
-		//	hv2d[n] = 0.0;
-		//}
+			hu2d[n] = 0.0;
+			hv2d[n] = 0.0;
+		}
 	}
 
 }
 
-void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d) {
+void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d,int *pE3d,int*pE2d,int MyID) {
 	double *h2d = fphys2d_;
 	double *hu3d = fphys_;
 	double *hv3d = fphys_ + Np3d * K3d;
 	double *h3d = fphys_ + Np3d * K3d * 3;
 	int NLayer = *NLayer_;
 	signed char *cellType = status_;
+
+	double *IEFToE3d = meshunion->inneredge_p->FToE;
+	double *IEFToE2d = meshunion->mesh2d_p->mesh2dinneredge_p->FToE2d;
+	int IENe3d = *(meshunion->inneredge_p->Ne);
+	int IENe2d = *(meshunion->mesh2d_p->mesh2dinneredge_p->Ne2d);
 
 	/*Judge the WD status in each element. Firstly, confirm wet, dry and patial status.*/
 	/*** For partial WD elements, we must restruct the elements. ***/
@@ -187,16 +194,20 @@ void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, 
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K2d; k++) {
-        JudgingNodeAndElementWD(h2d + k * Np2d, h2d + K2d * Np2d + k * Np2d, h2d + K2d * Np2d * 2 + k * Np2d, h2d + K2d * Np2d * 3 + k * Np2d, \
-			hu3d + k * Np3d * NLayer, hv3d + k * Np3d * NLayer, h3d + k * Np3d * NLayer, Limited_huhv2D + k * Np2d,cellType + k, Np2d, K2d, Np3d, NLayer,k);
+		if (MyID == pE2d[k]) {
+			JudgingNodeAndElementWD(h2d + k * Np2d, h2d + K2d * Np2d + k * Np2d, h2d + K2d * Np2d * 2 + k * Np2d, h2d + K2d * Np2d * 3 + k * Np2d, \
+				hu3d + k * Np3d * NLayer, hv3d + k * Np3d * NLayer, h3d + k * Np3d * NLayer, Limited_huhv2D + k * Np2d, cellType + k, Np2d, K2d, Np3d, NLayer, k);
 
-		for (int i = 0; i < NLayer; i++) {
-			Status3d[k * NLayer + i] = cellType[k];
+			for (int i = 0; i < NLayer; i++) {
+				Status3d[k * NLayer + i] = cellType[k];
+			}
 		}
 	}
+	Exchange(Status3d, IEFToE3d, pE3d, IENe3d, Np3d, K3d, 1);
+	Exchange(cellType, IEFToE2d, pE2d, IENe2d, Np2d, K2d, 1);
 }
 
-void Limiter2d(double *fphys2d_, int fieldID, double *Limited_huhv2D) {
+void Limiter2d(double *fphys2d_, int *pE2d, int MyID) {
 
 	/* get inputs */
 	int Np = *(meshunion->mesh2d_p->mesh2dcell_p->Np2d);
@@ -221,66 +232,73 @@ void Limiter2d(double *fphys2d_, int fieldID, double *Limited_huhv2D) {
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K; k++) {
-		for (int n = 0; n < Np; n++) {
-			Eta2d[k * Np + n] = fphys[k * Np + n] + fphys[3 * Np * K + k * Np + n];//use fphys_5 to save zeta2d
+		if (MyID == pE2d[k]) {
+			for (int n = 0; n < Np; n++) {
+				Eta2d[k * Np + n] = fphys[k * Np + n] + fphys[3 * Np * K + k * Np + n];//use fphys_5 to save zeta2d
+			}
+		}
 	}
-}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif 
 	for (int k = 0; k < K; k++) {
-		GetMeshAverageValue(avar + k, LAV + k, Nq, &one_ptrdiff, &Np, Vq, Eta2d + k * Np, Jacobian + k * Np, Nq, wq);
+		if (MyID == pE2d[k]) {
+			GetMeshAverageValue(avar + k, LAV + k, Nq, &one_ptrdiff, &Np, Vq, Eta2d + k * Np, Jacobian + k * Np, Nq, wq);
+		}
 	}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif    
 	for (int k = 0; k < K; k++) {
-		/*This part is used to determine the maxmum and minimum allowable value of the studied cell with index k */
-		double amax = -1 * pow(10, 10), amin = pow(10, 10);
-		for (int f = 0; f < Nface; f++) {
-			/*Only the adjacent cell is considered, and the average value of the studied cell is not included*/
-			if ((int)EToE[k*Nface + f] - 1 != k) {
-				amax = fmax(amax, avar[(int)EToE[k*Nface + f] - 1]);
-				amin = fmin(amin, avar[(int)EToE[k*Nface + f] - 1]);
+		if (MyID == pE2d[k]) {
+			/*This part is used to determine the maxmum and minimum allowable value of the studied cell with index k */
+			double amax = -1 * pow(10, 10), amin = pow(10, 10);
+			for (int f = 0; f < Nface; f++) {
+				/*Only the adjacent cell is considered, and the average value of the studied cell is not included*/
+				if ((int)EToE[k*Nface + f] - 1 != k) {
+					amax = fmax(amax, avar[(int)EToE[k*Nface + f] - 1]);
+					amin = fmin(amin, avar[(int)EToE[k*Nface + f] - 1]);
+				}
 			}
-		}
-		/*This part is used to decide whether the studied cell is problematic following Cockburn and Shu*/
-		int flag = 0;
-		for (int i = 0; i < Np; i++) {
-			if (Eta2d[k * Np + i] > amax || Eta2d[k * Np + i] < amin) {
-				flag = 1;
-				break;
-			}
-		}
-		if (flag == 0)
-			continue;
-		else {
-			double Lambda = 1;
+			/*This part is used to decide whether the studied cell is problematic following Cockburn and Shu*/
+			int flag = 0;
 			for (int i = 0; i < Np; i++) {
-				if (Eta2d[k * Np + i] > amax)
-					Lambda = fmin(Lambda, (amax - avar[k]) / (Eta2d[k*Np + i] - avar[k] + pow(10, -10)));
-				//Lambda = fmin(Lambda, (amax - avar[k]) / (fphys[k * Np + i] - avar[k]));
-				else if (Eta2d[k * Np + i] < amin)
-					Lambda = fmin(Lambda, (avar[k] - amin) / (avar[k] - Eta2d[k*Np + i] + pow(10, -10)));
-				//Lambda = fmin(Lambda, (avar[k] - amin) / (avar[k] - fphys[k * Np + i]));
+				if (Eta2d[k * Np + i] > amax || Eta2d[k * Np + i] < amin) {
+					flag = 1;
+					break;
+				}
 			}
-			Lambda = fmax(0.0, Lambda);
-			for (int i = 0; i < Np; i++) {
-				Eta2d[k * Np + i] = Lambda * Eta2d[k * Np + i] + (1 - Lambda)*avar[k];
+			if (flag == 0)
+				continue;
+			else {
+				double Lambda = 1;
+				for (int i = 0; i < Np; i++) {
+					if (Eta2d[k * Np + i] > amax)
+						Lambda = fmin(Lambda, (amax - avar[k]) / (Eta2d[k*Np + i] - avar[k] + pow(10, -10)));
+					//Lambda = fmin(Lambda, (amax - avar[k]) / (fphys[k * Np + i] - avar[k]));
+					else if (Eta2d[k * Np + i] < amin)
+						Lambda = fmin(Lambda, (avar[k] - amin) / (avar[k] - Eta2d[k*Np + i] + pow(10, -10)));
+					//Lambda = fmin(Lambda, (avar[k] - amin) / (avar[k] - fphys[k * Np + i]));
+				}
+				Lambda = fmax(0.0, Lambda);
+				for (int i = 0; i < Np; i++) {
+					Eta2d[k * Np + i] = Lambda * Eta2d[k * Np + i] + (1 - Lambda)*avar[k];
+				}
 			}
 		}
-
 	}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
-	for (int k = 0; k < K; k++) {	
-		if (status[k] == NdgRegionWet) {
-			for (int j = 0; j < Np; j++) {			
-				fphys[k * Np + j] = Eta2d[k * Np + j] - fphys[3 * Np * K + k * Np + j];
+	for (int k = 0; k < K; k++) {
+		if (MyID == pE2d[k]) {
+			if (status[k] == NdgRegionWet) {
+				for (int j = 0; j < Np; j++) {
+					fphys[k * Np + j] = Eta2d[k * Np + j] - fphys[3 * Np * K + k * Np + j];
+				}
 			}
 		}
 	}

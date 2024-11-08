@@ -248,8 +248,7 @@ void AssembleBoundaryContribution(double *dest, double *source, int Np, int K3d,
 	}
 }
 
-
-void UpdateImplicitRHS::EvaluateupdateimplicitRHS(double *fphys_, double *nv_v,double *frhs_, double ImplicitA, double *BBE, double *SBE,int *varIndex)
+void UpdateImplicitRHS::EvaluateupdateimplicitRHS(double *fphys_, double *nv_v,double *frhs_, double ImplicitA, double *BBE, double *SBE,int *varIndex,int*pE2d,int*pE3d,int MyID)
 {
 	//mexAtExit(&MyExit);
 	double *J2d = meshunion->mesh2d_p->J2d;
@@ -303,9 +302,11 @@ void UpdateImplicitRHS::EvaluateupdateimplicitRHS(double *fphys_, double *nv_v,d
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K3d; k++) {
-		for (int n = 0; n < Np; n++) {
-			fphys[k * Np + n] = fphys[K3d * Np * 9 + k * Np + n];
-			fphys[K3d * Np + k * Np + n] = fphys[K3d * Np * 10 + k * Np + n];
+		if (MyID == pE3d[k]) {
+			for (int n = 0; n < Np; n++) {
+				fphys[k * Np + n] = fphys[K3d * Np * 9 + k * Np + n];
+				fphys[K3d * Np + k * Np + n] = fphys[K3d * Np * 10 + k * Np + n];
+			}
 		}
 	}
 #endif
@@ -319,174 +320,177 @@ void UpdateImplicitRHS::EvaluateupdateimplicitRHS(double *fphys_, double *nv_v,d
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int i = 0; i < K2d; i++) {
-		CalculatePenaltyParameter(Tau + i * Np2d*(Nz + 1), Np2d, Np, UpEidM, BotEidM, Diff + i * Np*Nz, Nz, P, Nface);
+		if (MyID == pE2d[i]) {
+			CalculatePenaltyParameter(Tau + i * Np2d*(Nz + 1), Np2d, Np, UpEidM, BotEidM, Diff + i * Np*Nz, Nz, P, Nface);
+		}
 	}
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int i = 0; i < K2d; i++) {
-		NdgRegionType type = (NdgRegionType)status[i];
-		if (type == NdgRegionWet) {
-			double *StiffMatrix = (double *)malloc(Np*Nz*Np*Nz*Nvar * sizeof(double));
-			memset(StiffMatrix, 0, Np*Nz*Np*Nz*Nvar * sizeof(double));
-			double *EleMass3d = (double *)malloc(Np*Np * sizeof(double));
-			double *InvEleMass3d = (double *)malloc(Np*Np * sizeof(double));
-			double *EleMass2d = (double *)malloc(Np2d*Np2d * sizeof(double));
-			double *LocalPhysicalDiffMatrix = (double *)malloc(Np*Np * sizeof(double));
-			double *Dz = (double *)malloc(Np*Np * sizeof(double));
-			double *OP11 = (double *)malloc(Np*Np * sizeof(double));
-			double *LocalRows = (double *)malloc(Np * sizeof(double));
-			double *LocalColumns = (double *)malloc(Np * sizeof(double));
-			DiagMultiply(EleMass3d, M3d, J3d + i * Nz*Np, Np);
-			memcpy(InvEleMass3d, EleMass3d, Np*Np * sizeof(double));
-			//MatrixInverseTest();
-			MatrixInverse(InvEleMass3d, (int)Np);
+		if (MyID == pE2d[i]) {
+			NdgRegionType type = (NdgRegionType)status[i];
+			if (type == NdgRegionWet) {
+				double *StiffMatrix = (double *)malloc(Np*Nz*Np*Nz*Nvar * sizeof(double));
+				memset(StiffMatrix, 0, Np*Nz*Np*Nz*Nvar * sizeof(double));
+				double *EleMass3d = (double *)malloc(Np*Np * sizeof(double));
+				double *InvEleMass3d = (double *)malloc(Np*Np * sizeof(double));
+				double *EleMass2d = (double *)malloc(Np2d*Np2d * sizeof(double));
+				double *LocalPhysicalDiffMatrix = (double *)malloc(Np*Np * sizeof(double));
+				double *Dz = (double *)malloc(Np*Np * sizeof(double));
+				double *OP11 = (double *)malloc(Np*Np * sizeof(double));
+				double *LocalRows = (double *)malloc(Np * sizeof(double));
+				double *LocalColumns = (double *)malloc(Np * sizeof(double));
+				DiagMultiply(EleMass3d, M3d, J3d + i * Nz*Np, Np);
+				memcpy(InvEleMass3d, EleMass3d, Np*Np * sizeof(double));
+				//MatrixInverseTest();
+				MatrixInverse(InvEleMass3d, (int)Np);
 
-			DiagMultiply(EleMass2d, M2d, J2d + i * Np2d, Np2d);
-			DiagMultiply(Dz, Dt, tz + i * Nz*Np, Np);
-			DiagMultiply(LocalPhysicalDiffMatrix, Dz, Diff + i * Nz*Np, Np);
-			GetLocalRowsAndColumns(LocalRows, LocalColumns, 0, Np);
-			/*Calculate the volumn integral for the first cell, and impose the surface Newmann boundary condition*/
-			VolumnIntegral(OP11, Dz, EleMass3d, LocalPhysicalDiffMatrix, Np);
-			double *SurfBoundStiffTerm = (double *)malloc(Np*Nvar * sizeof(double));
-			double *BotBoundStiffTerm = (double *)malloc(Np*Nvar * sizeof(double));
-			char ch = 'T';
-			ImposeNewmannBoundary(UpEidM, EleMass2d, InvEleMass3d, dt, ImplicitParam, surf + i * Np2d, (int)Np2d, K2d, fphys + i * Np*Nz, (int)Np, K3d, SurfBoundStiffTerm, Nvar, &ch, varIndex);
-			ch = 'B';
-			//有温盐泥沙时Nvar不等于2，边界条件得修改
+				DiagMultiply(EleMass2d, M2d, J2d + i * Np2d, Np2d);
+				DiagMultiply(Dz, Dt, tz + i * Nz*Np, Np);
+				DiagMultiply(LocalPhysicalDiffMatrix, Dz, Diff + i * Nz*Np, Np);
+				GetLocalRowsAndColumns(LocalRows, LocalColumns, 0, Np);
+				/*Calculate the volumn integral for the first cell, and impose the surface Newmann boundary condition*/
+				VolumnIntegral(OP11, Dz, EleMass3d, LocalPhysicalDiffMatrix, Np);
+				double *SurfBoundStiffTerm = (double *)malloc(Np*Nvar * sizeof(double));
+				double *BotBoundStiffTerm = (double *)malloc(Np*Nvar * sizeof(double));
+				char ch = 'T';
+				ImposeNewmannBoundary(UpEidM, EleMass2d, InvEleMass3d, dt, ImplicitParam, surf + i * Np2d, (int)Np2d, K2d, fphys + i * Np*Nz, (int)Np, K3d, SurfBoundStiffTerm, Nvar, &ch, varIndex);
+				ch = 'B';
+				//有温盐泥沙时Nvar不等于2，边界条件得修改
 
-			if (Nz != 1) {
-				/*When vertical layers greater than one, we calculate the bottom boundary integral part */
-				double *BottomAdjacentRows = (double *)malloc(Np * sizeof(double));
-				double *UpAdjacentRows = (double *)malloc(Np * sizeof(double));
-				GetBottomRows(BottomAdjacentRows, LocalRows, Np);// The next layer
-				double *BottomPhysicalDiffMatrix = (double *)malloc(Np*Np * sizeof(double));
-				double *UpPhysicalDiffMatrix = (double *)malloc(Np*Np * sizeof(double));
-				DiagMultiply(BottomPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + Np, Np);
-				LocalBoundaryIntegral(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + 2 - 1), OP11, (int)Np, (int)Np2d, -1, epsilon);
-				double *OP12 = (double *)malloc(Np*Np * sizeof(double));
-				memset(OP12, 0, Np*Np * sizeof(double));
-				AdjacentBoundaryIntegral(BotEidM, UpEidM, LocalPhysicalDiffMatrix, BottomPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + 2 - 1), OP12, Np, Np2d, -1, epsilon);
-				for (int var = 0; var < 2; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1.0, Np*Nz, Np);
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, 1.0, Np*Nz, Np);
-				}
-				for (int var = 2; var < Nvar; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
-				}
-				for (int j = 1; j < Nz - 1; j++) {
-					/*Calculate both the volume and surface integral for the second to the last but one cell*/
-					GetLocalRowsAndColumns(LocalRows, LocalColumns, j, Np);
+				if (Nz != 1) {
+					/*When vertical layers greater than one, we calculate the bottom boundary integral part */
+					double *BottomAdjacentRows = (double *)malloc(Np * sizeof(double));
+					double *UpAdjacentRows = (double *)malloc(Np * sizeof(double));
 					GetBottomRows(BottomAdjacentRows, LocalRows, Np);
-					GetUpRows(UpAdjacentRows, LocalRows, Np);
-					DiagMultiply(UpPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (j - 1)*Np, Np);
-					DiagMultiply(LocalPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + j * Np, Np);
-					DiagMultiply(BottomPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (j + 1)*Np, Np);
-					VolumnIntegral(OP11, Dz, EleMass3d, LocalPhysicalDiffMatrix, Np);
-					LocalBoundaryIntegral(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j + 1), OP11, (int)Np, (int)Np2d, -1, epsilon);
-					LocalBoundaryIntegral(UpEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j), OP11, (int)Np, (int)Np2d, 1, epsilon);
+					double *BottomPhysicalDiffMatrix = (double *)malloc(Np*Np * sizeof(double));
+					double *UpPhysicalDiffMatrix = (double *)malloc(Np*Np * sizeof(double));
+					DiagMultiply(BottomPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + Np, Np);
+					LocalBoundaryIntegral(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + 2 - 1), OP11, (int)Np, (int)Np2d, -1, epsilon);
+					double *OP12 = (double *)malloc(Np*Np * sizeof(double));
 					memset(OP12, 0, Np*Np * sizeof(double));
-					AdjacentBoundaryIntegral(UpEidM, BotEidM, LocalPhysicalDiffMatrix, UpPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j), OP12, Np, Np2d, 1, epsilon);
-
+					AdjacentBoundaryIntegral(BotEidM, UpEidM, LocalPhysicalDiffMatrix, BottomPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + 2 - 1), OP12, Np, Np2d, -1, epsilon);
 					for (int var = 0; var < 2; var++) {
-						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1, Np*Nz, Np);
-						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, 1, Np*Nz, Np);
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1.0, Np*Nz, Np);
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, 1.0, Np*Nz, Np);
 					}
 					for (int var = 2; var < Nvar; var++) {
 						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
-						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
-					}
-					memset(OP12, 0, Np*Np * sizeof(double));
-					AdjacentBoundaryIntegral(BotEidM, UpEidM, LocalPhysicalDiffMatrix, BottomPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j + 1), OP12, Np, Np2d, -1, epsilon);
-					for (int var = 0; var < 2 && var < Nvar; var++) {
-						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, 1, Np*Nz, Np);
-					}
-					for (int var = 2; var < Nvar; var++) {
 						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
 					}
+					for (int j = 1; j < Nz - 1; j++) {
+						/*Calculate both the volume and surface integral for the second to the last but one cell*/
+						GetLocalRowsAndColumns(LocalRows, LocalColumns, j, Np);
+						GetBottomRows(BottomAdjacentRows, LocalRows, Np);
+						GetUpRows(UpAdjacentRows, LocalRows, Np);
+						DiagMultiply(UpPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (j - 1)*Np, Np);
+						DiagMultiply(LocalPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + j * Np, Np);
+						DiagMultiply(BottomPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (j + 1)*Np, Np);
+						VolumnIntegral(OP11, Dz, EleMass3d, LocalPhysicalDiffMatrix, Np);
+						LocalBoundaryIntegral(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j + 1), OP11, (int)Np, (int)Np2d, -1, epsilon);
+						LocalBoundaryIntegral(UpEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j), OP11, (int)Np, (int)Np2d, 1, epsilon);
+						memset(OP12, 0, Np*Np * sizeof(double));
+						AdjacentBoundaryIntegral(UpEidM, BotEidM, LocalPhysicalDiffMatrix, UpPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j), OP12, Np, Np2d, 1, epsilon);
+
+						for (int var = 0; var < 2; var++) {
+							AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1, Np*Nz, Np);
+							AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, 1, Np*Nz, Np);
+						}
+						for (int var = 2; var < Nvar; var++) {
+							AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
+							AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
+						}
+						memset(OP12, 0, Np*Np * sizeof(double));
+						AdjacentBoundaryIntegral(BotEidM, UpEidM, LocalPhysicalDiffMatrix, BottomPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + j + 1), OP12, Np, Np2d, -1, epsilon);
+						for (int var = 0; var < 2 && var < Nvar; var++) {
+							AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, 1, Np*Nz, Np);
+						}
+						for (int var = 2; var < Nvar; var++) {
+							AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, BottomAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
+						}
+					}
+					/*For the bottom most cell, calculate the volumn integral and impose Neumann boundary condition or the Dirichlet boundary condition*/
+					GetLocalRowsAndColumns(LocalRows, LocalColumns, Nz - 1, Np);
+					GetUpRows(UpAdjacentRows, LocalRows, Np);
+					DiagMultiply(LocalPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (Nz - 1)*Np, Np);
+					DiagMultiply(UpPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (Nz - 1 - 1)*Np, Np);
+					VolumnIntegral(OP11, Dz, EleMass3d, LocalPhysicalDiffMatrix, Np);
+					LocalBoundaryIntegral(UpEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz - 1), OP11, (int)Np, (int)Np2d, 1, epsilon);
+					/*For passive transport substances, we only impose Neumann boundary condition, so this has no effect on the stiff matrix*/
+					for (int var = 2; var < Nvar; var++) {
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
+					}
+					/*We note that, the Neumann data is zero by default, so the impositon of Neumann BC for hu and hv will not affect the Dirichlet boundary condition for hu and hv*/
+					ImposeNewmannBoundary(BotEidM, EleMass2d, InvEleMass3d, dt, ImplicitParam, bot + i * Np2d, (int)Np2d, K2d, fphys + i * Np*Nz + (Nz - 1)*Np, (int)Np, K3d, BotBoundStiffTerm, Nvar, &ch, varIndex);
+					/*The following is used to add homogeneous dirichlet boundary for hu and hv*/
+					//if (!strcmp(BoundaryType, "Dirichlet")) {
+					//	ImposeDirichletBoundary(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz), OP11, (int)Np, (int)Np2d, -1, epsilon);
+					//}
+					memset(OP12, 0, Np*Np * sizeof(double));
+					AdjacentBoundaryIntegral(UpEidM, BotEidM, LocalPhysicalDiffMatrix, UpPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz - 1), OP12, (int)Np, (int)Np2d, 1, epsilon);
+					for (int var = 0; var < 2; var++) {
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, 1, Np*Nz, Np);
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1, Np*Nz, Np);
+					}
+					for (int var = 2; var < Nvar; var++) {
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
+					}
+
+					free(BottomAdjacentRows);
+					free(UpAdjacentRows);
+					free(BottomPhysicalDiffMatrix);
+					free(UpPhysicalDiffMatrix);
+					free(OP12);
 				}
-				/*For the bottom most cell, calculate the volumn integral and impose Neumann boundary condition or the Dirichlet boundary condition*/
-				GetLocalRowsAndColumns(LocalRows, LocalColumns, Nz - 1, Np);
-				GetUpRows(UpAdjacentRows, LocalRows, Np);
-				DiagMultiply(LocalPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (Nz - 1)*Np, Np);
-				DiagMultiply(UpPhysicalDiffMatrix, Dz, Diff + i * Nz*Np + (Nz - 1 - 1)*Np, Np);
-				VolumnIntegral(OP11, Dz, EleMass3d, LocalPhysicalDiffMatrix, Np);
-				LocalBoundaryIntegral(UpEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz - 1), OP11, (int)Np, (int)Np2d, 1, epsilon);
-				/*For passive transport substances, we only impose Neumann boundary condition, so this has no effect on the stiff matrix*/
-				for (int var = 2; var < Nvar; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
-				}
-				/*We note that, the Neumann data is zero by default, so the impositon of Neumann BC for hu and hv will not affect the Dirichlet boundary condition for hu and hv*/
-				ImposeNewmannBoundary(BotEidM, EleMass2d, InvEleMass3d, dt, ImplicitParam, bot + i * Np2d, (int)Np2d, K2d, fphys + i * Np*Nz + (Nz - 1)*Np, (int)Np, K3d, BotBoundStiffTerm, Nvar, &ch, varIndex);
-				/*The following is used to add homogeneous dirichlet boundary for hu and hv*/
-				//if (!strcmp(BoundaryType, "Dirichlet")) {
-				//	ImposeDirichletBoundary(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz), OP11, (int)Np, (int)Np2d, -1, epsilon);
-				//}
-				memset(OP12, 0, Np*Np * sizeof(double));
-				AdjacentBoundaryIntegral(UpEidM, BotEidM, LocalPhysicalDiffMatrix, UpPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz - 1), OP12, (int)Np, (int)Np2d, 1, epsilon);
-				for (int var = 0; var < 2; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, 1, Np*Nz, Np);
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1, Np*Nz, Np);
-				}
-				for (int var = 2; var < Nvar; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP12, UpAdjacentRows, LocalColumns, Prantl, Np*Nz, Np);
+				else {/*If only one layer included in vertical direction, we need to consider the bottom face, and the Upper face has been considered in the first part, from 291-312*/
+					/*For passive transport substances, we only impose Neumann boundary condition*/
+					for (int var = 2; var < Nvar; var++) {
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
+					}
+					/*We note that, the Neumann data is zero by default, so the impositon of Neumann BC for hu and hv will not affect the Dirichlet boundary condition for hu and hv*/
+					ImposeNewmannBoundary(BotEidM, EleMass2d, InvEleMass3d, dt, ImplicitParam, bot + i * Np2d, (int)Np2d, K2d, fphys + i * Np*Nz + (Nz - 1)*Np, (int)Np, K3d, BotBoundStiffTerm, Nvar, &ch, varIndex);
+					/* The following is used to add homogeneous dirichlet boundary for hu and hv*/
+					//if (!strcmp(BoundaryType, "Dirichlet")) {
+					//	ImposeDirichletBoundary(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz), OP11, (int)Np, (int)Np2d, -1, epsilon);
+					//}
+					for (int var = 0; var < 2; var++) {
+						AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1, Np*Nz, Np);
+					}
 				}
 
-				free(BottomAdjacentRows);
-				free(UpAdjacentRows);
-				free(BottomPhysicalDiffMatrix);
-				free(UpPhysicalDiffMatrix);
-				free(OP12);
+				EquationSolve(fphys + i * Nz*Np, Nz*Np, 1, StiffMatrix, dt, ImplicitParam, Nvar, K3d, Np, varIndex);
+				//EquationSolve(fphys + i * Nz*Np, Nz*Np, 1, StiffMatrix, dt, ImplicitParam, 2, K3d, Np, varIndex);
+
+				const int dimension = Np * Nz;
+				const int colB = 1;
+				double Alpha = 1.0, Beta = 0.0;
+				for (int var = 0; var < Nvar; var++) {
+					MatrixMultiply(StiffMatrix + var * Np*Nz*Np*Nz, fphys + (varIndex[var] - 1) * K3d*Np + i * Nz*Np, ImplicitRHS + var * K3d*Np + i * Nz*Np, dimension, colB, dimension, Alpha);
+					//MatrixMultiply(StiffMatrix + var * Np*Nz*Np*Nz, fphys + var * K3d*Np + i * Nz*Np, ImplicitRHS + var * K3d*Np + i * Nz*Np, dimension, colB, dimension, Alpha);
+					//dgemm("n", "n", &dimension, &colB, &dimension, &Alpha, StiffMatrix + var * Np*Nz*Np*Nz, &dimension, fphys + var * K3d*Np + i * Nz*Np, &dimension, &Beta, ImplicitRHS + var * K3d*Np + i * Nz*Np, &dimension);
+				}
+				AssembleBoundaryContribution(ImplicitRHS + i * Nz*Np, SurfBoundStiffTerm, Np, K3d, Nvar);
+				AssembleBoundaryContribution(ImplicitRHS + i * Nz*Np + (Nz - 1)*Np, BotBoundStiffTerm, Np, K3d, Nvar);
+
+				free(EleMass3d);
+				free(InvEleMass3d);
+				free(EleMass2d);
+				free(LocalPhysicalDiffMatrix);
+				free(Dz);
+				free(OP11);
+				free(LocalRows);
+				free(LocalColumns);
+				free(SurfBoundStiffTerm);
+				free(BotBoundStiffTerm);
+				free(StiffMatrix);
+
 			}
-			else {/*If only one layer included in vertical direction, we need to consider the bottom face, and the Upper face has been considered in the first part, from 291-312*/
-				/*For passive transport substances, we only impose Neumann boundary condition*/
-				for (int var = 2; var < Nvar; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, Prantl, Np*Nz, Np);
-				}
-				/*We note that, the Neumann data is zero by default, so the impositon of Neumann BC for hu and hv will not affect the Dirichlet boundary condition for hu and hv*/
-				ImposeNewmannBoundary(BotEidM, EleMass2d, InvEleMass3d, dt, ImplicitParam, bot + i * Np2d, (int)Np2d, K2d, fphys + i * Np*Nz + (Nz - 1)*Np, (int)Np, K3d, BotBoundStiffTerm, Nvar, &ch, varIndex);
-				/* The following is used to add homogeneous dirichlet boundary for hu and hv*/
-				//if (!strcmp(BoundaryType, "Dirichlet")) {
-				//	ImposeDirichletBoundary(BotEidM, LocalPhysicalDiffMatrix, EleMass2d, Tau + Np2d * (i*(Nz + 1) + Nz), OP11, (int)Np, (int)Np2d, -1, epsilon);
-				//}
-				for (int var = 0; var < 2; var++) {
-					AssembleGlobalStiffMatrix(StiffMatrix + var * Np*Nz*Np*Nz, InvEleMass3d, OP11, LocalRows, LocalColumns, 1, Np*Nz, Np);
-				}
+			else {
+				continue;
 			}
-
-			EquationSolve(fphys + i * Nz*Np, Nz*Np, 1, StiffMatrix, dt, ImplicitParam, Nvar, K3d, Np, varIndex);
-			//EquationSolve(fphys + i * Nz*Np, Nz*Np, 1, StiffMatrix, dt, ImplicitParam, 2, K3d, Np, varIndex);
-
-			const int dimension = Np * Nz;
-			const int colB = 1;
-			double Alpha = 1.0, Beta = 0.0;
-			for (int var = 0; var < Nvar; var++) {
-				MatrixMultiply(StiffMatrix + var * Np*Nz*Np*Nz, fphys + (varIndex[var] - 1) * K3d*Np + i * Nz*Np, ImplicitRHS + var * K3d*Np + i * Nz*Np, dimension, colB, dimension, Alpha);
-				//MatrixMultiply(StiffMatrix + var * Np*Nz*Np*Nz, fphys + var * K3d*Np + i * Nz*Np, ImplicitRHS + var * K3d*Np + i * Nz*Np, dimension, colB, dimension, Alpha);
-				//dgemm("n", "n", &dimension, &colB, &dimension, &Alpha, StiffMatrix + var * Np*Nz*Np*Nz, &dimension, fphys + var * K3d*Np + i * Nz*Np, &dimension, &Beta, ImplicitRHS + var * K3d*Np + i * Nz*Np, &dimension);
-			}
-			AssembleBoundaryContribution(ImplicitRHS + i * Nz*Np, SurfBoundStiffTerm, Np, K3d, Nvar);
-			AssembleBoundaryContribution(ImplicitRHS + i * Nz*Np + (Nz - 1)*Np, BotBoundStiffTerm, Np, K3d, Nvar);
-
-			free(EleMass3d);
-			free(InvEleMass3d);
-			free(EleMass2d);
-			free(LocalPhysicalDiffMatrix);
-			free(Dz);
-			free(OP11);
-			free(LocalRows);
-			free(LocalColumns);
-			free(SurfBoundStiffTerm);
-			free(BotBoundStiffTerm);
-			free(StiffMatrix);
-
 		}
-		else {
-			continue;
-		}
-
 	}
 
 #ifdef COUPLING_SWAN
@@ -495,13 +499,13 @@ void UpdateImplicitRHS::EvaluateupdateimplicitRHS(double *fphys_, double *nv_v,d
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int k = 0; k < K3d; k++) {
-		for (int n = 0; n < Np; n++) {
-			fphys[K3d * Np * 9 + k * Np + n] = fphys[k * Np + n];
-			fphys[K3d * Np * 10 + k * Np + n] = fphys[K3d * Np + k * Np + n];
-			fphys[k * Np + n] = fphys[k * Np + n] + fphys[K3d * Np * 11 + k * Np + n];
-			fphys[K3d * Np + k * Np + n] = fphys[K3d * Np + k * Np + n] + fphys[K3d * Np * 12 + k * Np + n];
-			//fphys[K3d * Np * 9 + k * Np + n] = fphys[k * Np + n] - fphys[K3d * Np * 11 + k * Np + n];
-			//fphys[K3d * Np * 10 + k * Np + n] = fphys[K3d * Np + k * Np + n] - fphys[K3d * Np * 12 + k * Np + n];
+		if (MyID == pE3d[k]) {
+			for (int n = 0; n < Np; n++) {
+				fphys[K3d * Np * 9 + k * Np + n] = fphys[k * Np + n];
+				fphys[K3d * Np * 10 + k * Np + n] = fphys[K3d * Np + k * Np + n];
+				fphys[k * Np + n] = fphys[k * Np + n] + fphys[K3d * Np * 11 + k * Np + n];
+				fphys[K3d * Np + k * Np + n] = fphys[K3d * Np + k * Np + n] + fphys[K3d * Np * 12 + k * Np + n];
+			}
 		}
 	}
 

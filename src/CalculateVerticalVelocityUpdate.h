@@ -12,7 +12,7 @@ public:
 	CalculateVerticalVelocity();
 	~CalculateVerticalVelocity();
 
-	void EvaluateVerticalVelocity(double *fphys2d, double *fphys, double *fext2d, double *fext3d);
+	void EvaluateVerticalVelocity(double *fphys2d, double *fphys, double *fext2d, double *fext3d,int*,int*,int);
 
 
 };

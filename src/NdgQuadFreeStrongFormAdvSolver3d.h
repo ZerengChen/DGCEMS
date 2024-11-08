@@ -12,7 +12,7 @@ public:
 	NdgQuadFreeStrongFormAdvSolver3d();
 	~NdgQuadFreeStrongFormAdvSolver3d();
 
-	void evaluateAdvectionRHS(double *fphys, double *frhs, double *fext, int *varFieldIndex);
+	void evaluateAdvectionRHS(double *fphys, double *frhs, double *fext, int *varFieldIndex,int*pE3d,int MyID);
 
 	//SWEAbstract3d sweabstract3d;
 	//SWEPreBlanaced2d swepreblanaced2d;
