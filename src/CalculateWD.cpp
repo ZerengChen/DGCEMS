@@ -16,7 +16,7 @@ extern double *Eta2d;
 //extern double *h_mean, *hu_mean, *hv_mean;
 
 void JudgingNodeAndElementWD(double *source_h2d, double *source_hu2d, double *source_hv2d, double *source_z, \
-	double *hu3d, double *hv3d, double *h3d, double *Limited_huhv2D,signed char *dest, int Np2d, int K2d, int Np3d, int NLayer, int k) {
+	double *hu3d, double *hv3d, double *h3d, signed char *dest, int Np2d, int K2d, int Np3d, int NLayer, int k) {
 	//Define some initial value
 	int _Nz = *(meshunion->cell_p->Nz) + 1;
 	int wetNodeNum = 0; // The total number of wet nodes in an element
@@ -66,42 +66,36 @@ void JudgingNodeAndElementWD(double *source_h2d, double *source_hu2d, double *so
 		/* 2. Calculate theta.*/
 		/* 3. Restruct h2d,hu2d and hv2d.*/
 		WDelementRestructing(source_h2d, source_hu2d, source_hv2d, Np3d, NLayer, Np2d, K2d, k, type);
-		type = NdgRegionPartialWetDamBreak;
-		//if (type == NdgRegionPartialWet) {
-		//	/****** A refined version to judge the flood and dambreak ******/
-		//	for (int n = 0; n < Np2d; n++) {
-		//		b_max = fmax(source_z[n], b_max); // find the maximal bottom elevation
-		//		zeta_max = fmax((source_z[n] + source_h2d[n]), zeta_max);// find the maximal water elevation
-		//	}
-		//	//For Flooding, the maximal bottom elevation is higher than the maximal water elevation
-		//	if (b_max + Hcrit > zeta_max) {
-		//		type = NdgRegionPartialWetFlood;
-		//		//type = NdgRegionDry;
-		//	}
-		//	//For dambreak, the maximal bottom elevation is lower than the maximal water elevation
-		//	else {
-		//		type = NdgRegionPartialWetDamBreak;
-		//		//type = NdgRegionDry;
-		//	}
-		//}
+		//type = NdgRegionDry;
+		if (type == NdgRegionPartialWet) {
+			/****** A refined version to judge the flood and dambreak ******/
+			for (int n = 0; n < Np2d; n++) {
+				b_max = fmax(source_z[n], b_max); // find the maximal bottom elevation
+				zeta_max = fmax((source_z[n] + source_h2d[n]), zeta_max);// find the maximal water elevation
+			}
+			//For Flooding, the maximal bottom elevation is higher than the maximal water elevation
+			if (b_max > zeta_max) {
+				type = NdgRegionPartialWetFlood;
+				//type = NdgRegionDry;
+			}
+			//For dambreak, the maximal bottom elevation is lower than the maximal water elevation
+			else {
+				type = NdgRegionPartialWetDamBreak;
+				//type = NdgRegionDry;
+			}
+		}
 
 		/* 4. Extend to 3d variables.*/
 		for (int i = 0; i < NLayer; i++) {
 			for (int j = 0; j < _Nz; j++) {
 				for (int n = 0; n < Np2d; n++) {
+//#ifdef _BAROCLINIC
+//					hu3d[14 * Np3d * K2d * NLayer + Np3d * i + Np2d * j + n] = 0.0; //hT==0
+//					hu3d[15 * Np3d * K2d * NLayer + Np3d * i + Np2d * j + n] = 0.0; //hS==0
+//#endif
 					h3d[Np3d * i + Np2d * j + n] = source_h2d[n];
-#ifdef _BAROCLINIC
-					hu3d[14 * Np3d * K2d * NLayer + Np3d * i + Np2d * j + n] = 0.0; //hT==0
-					hu3d[15 * Np3d * K2d * NLayer + Np3d * i + Np2d * j + n] = 0.0; //hS==0
-#endif
-					//if (source_h2d[n] > Hcrit) {
-					//	hu3d[Np3d * i + Np2d * j + n] = hu3d[Np3d * i + Np2d * j + n] + source_hu2d[n] - Limited_huhv2D[n];
-					//	hv3d[Np3d * i + Np2d * j + n] = hv3d[Np3d * i + Np2d * j + n] + source_hv2d[n] - Limited_huhv2D[K2d * Np2d + n];
-					//}
-					//else {
-						hu3d[Np3d * i + Np2d * j + n] = source_hu2d[n];//0
-						hv3d[Np3d * i + Np2d * j + n] = source_hv2d[n];//0
-					//}
+					hu3d[Np3d * i + Np2d * j + n] = source_hu2d[n];//0
+					hv3d[Np3d * i + Np2d * j + n] = source_hv2d[n];//0
 				}
 			}
 		}
@@ -146,10 +140,10 @@ void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int
 		
 		for (int n = 0; n < Np2d; n++) {
 			h2d[n] = _h_mean + theta * (h2d[n] - _h_mean);
-			//hu2d[n] = _hu_mean / _h_mean * h2d[n];
-			//hv2d[n] = _hv_mean / _h_mean * h2d[n];
-			hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
-			hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
+			hu2d[n] = _hu_mean / _h_mean * h2d[n];
+			hv2d[n] = _hv_mean / _h_mean * h2d[n];
+			//hu2d[n] = _hu_mean + theta * (hu2d[n] - _hu_mean);
+			//hv2d[n] = _hv_mean + theta * (hv2d[n] - _hv_mean);
 
 			if (h2d[n] <= Hcrit) {
 				hu2d[n] = 0.0;
@@ -159,19 +153,19 @@ void WDelementRestructing(double *h2d, double *hu2d, double *hv2d, int Np3d, int
 	}
 	else {
 		type2d_ = NdgRegionDry;
-		//for (int n = 0; n < Np2d; n++) {
-		//	if (h2d[n] < 0.0) {
-		//		h2d[n] = 0.0;
-		//	}
+		for (int n = 0; n < Np2d; n++) {
+			if (h2d[n] < 0.0) {
+				h2d[n] = 0.0;
+			}
 
-		//	hu2d[n] = 0.0;
-		//	hv2d[n] = 0.0;
-		//}
+			hu2d[n] = 0.0;
+			hv2d[n] = 0.0;
+		}
 	}
 
 }
 
-void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d) {
+void UpdateWetDryState(double *fphys_, double *fphys2d_, int *NLayer_, signed char *status_, int Np3d, int K3d, int Np2d, int K2d) {
 	double *h2d = fphys2d_;
 	double *hu3d = fphys_;
 	double *hv3d = fphys_ + Np3d * K3d;
@@ -188,7 +182,7 @@ void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, 
 #endif
 	for (int k = 0; k < K2d; k++) {
         JudgingNodeAndElementWD(h2d + k * Np2d, h2d + K2d * Np2d + k * Np2d, h2d + K2d * Np2d * 2 + k * Np2d, h2d + K2d * Np2d * 3 + k * Np2d, \
-			hu3d + k * Np3d * NLayer, hv3d + k * Np3d * NLayer, h3d + k * Np3d * NLayer, Limited_huhv2D + k * Np2d,cellType + k, Np2d, K2d, Np3d, NLayer,k);
+			hu3d + k * Np3d * NLayer, hv3d + k * Np3d * NLayer, h3d + k * Np3d * NLayer, cellType + k, Np2d, K2d, Np3d, NLayer,k);
 
 		for (int i = 0; i < NLayer; i++) {
 			Status3d[k * NLayer + i] = cellType[k];
@@ -196,7 +190,7 @@ void UpdateWetDryState(double *fphys_, double *fphys2d_,double *Limited_huhv2D, 
 	}
 }
 
-void Limiter2d(double *fphys2d_, int fieldID, double *Limited_huhv2D) {
+void Limiter2d(double *fphys2d_) {
 
 	/* get inputs */
 	int Np = *(meshunion->mesh2d_p->mesh2dcell_p->Np2d);
@@ -222,9 +216,14 @@ void Limiter2d(double *fphys2d_, int fieldID, double *Limited_huhv2D) {
 #endif
 	for (int k = 0; k < K; k++) {
 		for (int n = 0; n < Np; n++) {
-			Eta2d[k * Np + n] = fphys[k * Np + n] + fphys[3 * Np * K + k * Np + n];//use fphys_5 to save zeta2d
-	}
-}
+			if (fphys[k * Np + n] > 0.0) {
+				Eta2d[k * Np + n] = fphys[k * Np + n] + fphys[3 * Np * K + k * Np + n];//use fphys_5 to save zeta2d
+			}
+			else {
+				Eta2d[k * Np + n] = 0.0;
+			}
+	    }
+    }
 
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)

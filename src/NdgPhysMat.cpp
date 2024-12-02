@@ -367,12 +367,10 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 
 	double *Tempfphys2d = (double *)malloc((*Np2d)*(*K2d)*sizeof(double));
 	double *Tempfphys = (double *)malloc((*Np)*(*K)* Nvar * sizeof(double));
-	double *Limited_huhv2D = (double *)malloc((*Np2d)*(*K2d) * 2 * sizeof(double));//For WD reconstruction,存修正前的二维动量
 	EXfrhs2d = (double *)malloc((*Np2d) * (*K2d) * 2 * sizeof(double));//save h2d in two steps
 	EXfrhs = (double *)malloc((*Np) * (*K) * 2 * Nvar * sizeof(double));//save hu3d and hv3d in two steps
 	IMfrhs = (double *)malloc((*Np) * (*K) * Nvar * sizeof(double));
 
-	memset(Limited_huhv2D, 0, (*Np2d) * (*K2d) * 2 * sizeof(double));
 	memset(EXfrhs2d, 0, (*Np2d) * (*K2d) * 2 * sizeof(double));
 	memset(EXfrhs, 0, (*Np) * (*K) * 2 * Nvar * sizeof(double));
 	memset(IMfrhs, 0, (*Np) * (*K) * Nvar * sizeof(double));
@@ -667,16 +665,7 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 
 		/********** Here the wet and dry status are updated. ***********/
 		if (time == 0.0) {
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(DG_THREADS)
-#endif
-			for (int k = 0; k < *K2d; k++) {
-				for (int n = 0; n < *Np2d; n++) {
-					Limited_huhv2D[k * (*Np2d) + n] = fphys2d[*K2d*(*Np2d) + k * (*Np2d) + n];//hu2d
-					Limited_huhv2D[*K2d * (*Np2d) + k * (*Np2d) + n] = fphys2d[*K2d*(*Np2d)*2 + k * (*Np2d) + n];//hv2d
-				}
-			}
-			UpdateWetDryState(fphys, fphys2d, Limited_huhv2D,Nlayer3d, status, *Np, *K, *Np2d, *K2d);//第一步一般huhv2D=0
+			UpdateWetDryState(fphys, fphys2d, Nlayer3d, status, *Np, *K, *Np2d, *K2d);//第一步一般huhv2D=0
 		}
 		/****** ********************** END ********************** ******/
 #ifdef _BAROCLINIC
@@ -714,9 +703,13 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 		}
 
 		if ((int)Switch_Limiter3D == 1) {
-			Limiter2d(fphys2d, 3, Limited_huhv2D);//h2d
+			Limiter2d(fphys2d);//h2d
 			Limiter3d(fphys);//hu
 			Limiter3d(fphys + (*K)*(*Np));//hv
+#ifdef _BAROCLINIC
+			Limiter3d(fphys + 14 * (*K)*(*Np));
+			Limiter3d(fphys + 15 * (*K)*(*Np));
+#endif
 		}
 
 		//Update h3d field
@@ -731,41 +724,21 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 		verticalColumnIntegralField.EvaluateVerticalIntegral(fphys2d + (*Np2d) * (*K2d), fphys);
 		verticalColumnIntegralField.EvaluateVerticalIntegral(fphys2d + (*Np2d) * (*K2d) * 2, fphys + (*Np) * (*K));
 
-		/********** Here the wet and dry status are updated. ***********/
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(DG_THREADS)
-#endif
-		for (int k = 0; k < *K2d; k++) {
-			for (int n = 0; n < *Np2d; n++) {
-				Limited_huhv2D[k * (*Np2d) + n] = fphys2d[*K2d*(*Np2d) + k * (*Np2d) + n];//hu2d
-				Limited_huhv2D[*K2d * (*Np2d) + k * (*Np2d) + n] = fphys2d[*K2d*(*Np2d) * 2 + k * (*Np2d) + n];//hv2d
-			}
-		}
-
-		//UpdateWetDryState(fphys, fphys2d, Limited_huhv2D, Nlayer3d, status, *Np, *K, *Np2d, *K2d);
-		/****** ********************** END ********************** ******/
-
-
-
 		//Update zeta field (7 = 4 + 6) if wet, and 7 = 0.0 if dry
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < (*K); k++) {
-			if ((NdgRegionType)Status3d[k] != NdgRegionDry) {
-				for (int n = 0; n < (*Np); n++) {
-					fphys[(*K)*(*Np) * 6 + k * (*Np) + n] = fphys[(*K)*(*Np) * 3 + k * (*Np) + n] + fphys[(*K)*(*Np) * 5 + k * (*Np) + n];
+			for (int n = 0; n < (*Np); n++) {
+				fphys[(*K)*(*Np) * 6 + k * (*Np) + n] = fphys[(*K)*(*Np) * 3 + k * (*Np) + n] + fphys[(*K)*(*Np) * 5 + k * (*Np) + n];
 
 #ifdef COUPLING_SWAN
-					//Update Euler vilocity hu_e and hv_e
-					fphys[(*K)*(*Np) * 9 + k * (*Np) + n] = fphys[k * (*Np) + n] - fphys[(*K)*(*Np) * 11 + k * (*Np) + n];
-					fphys[(*K)*(*Np) * 10 + k * (*Np) + n] = fphys[(*K)*(*Np) + k * (*Np) + n] - fphys[(*K)*(*Np) * 12 + k * (*Np) + n];
+				//Update Euler vilocity hu_e and hv_e
+				fphys[(*K)*(*Np) * 9 + k * (*Np) + n] = fphys[k * (*Np) + n] - fphys[(*K)*(*Np) * 11 + k * (*Np) + n];
+				fphys[(*K)*(*Np) * 10 + k * (*Np) + n] = fphys[(*K)*(*Np) + k * (*Np) + n] - fphys[(*K)*(*Np) * 12 + k * (*Np) + n];
 #endif
-				}
 			}
-			else {
-				continue;
-			}
+
 		}
 
 		//Updata Vertical Velocity
@@ -821,9 +794,13 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 		}
 
 		if ((int)Switch_Limiter3D == 1) {
-			Limiter2d(fphys2d, 3, Limited_huhv2D);//h2d
+			Limiter2d(fphys2d);//h2d
 			Limiter3d(fphys);//hu
 			Limiter3d(fphys + (*K)*(*Np));//hv
+#ifdef _BAROCLINIC
+			Limiter3d(fphys + 14 * (*K)*(*Np));
+			Limiter3d(fphys + 15 * (*K)*(*Np));
+#endif
 		}
 
 		//Update h3d field
@@ -839,19 +816,14 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 		for (int k = 0; k < (*K); k++) {
-			if ((NdgRegionType)Status3d[k] != NdgRegionDry) {
-				for (int n = 0; n < (*Np); n++) {
+			for (int n = 0; n < (*Np); n++) {
 					fphys[(*K)*(*Np) * 6 + k * (*Np) + n] = fphys[(*K)*(*Np) * 3 + k * (*Np) + n] + fphys[(*K)*(*Np) * 5 + k * (*Np) + n];
 
 #ifdef COUPLING_SWAN
-					//Update Euler vilocity hu_e and hv_e
-					fphys[(*K)*(*Np) * 9 + k * (*Np) + n] = fphys[k * (*Np) + n] - fphys[(*K)*(*Np) * 11 + k * (*Np) + n];
-					fphys[(*K)*(*Np) * 10 + k * (*Np) + n] = fphys[(*K)*(*Np) + k * (*Np) + n] - fphys[(*K)*(*Np) * 12 + k * (*Np) + n];
+				//Update Euler vilocity hu_e and hv_e
+				fphys[(*K)*(*Np) * 9 + k * (*Np) + n] = fphys[k * (*Np) + n] - fphys[(*K)*(*Np) * 11 + k * (*Np) + n];
+				fphys[(*K)*(*Np) * 10 + k * (*Np) + n] = fphys[(*K)*(*Np) + k * (*Np) + n] - fphys[(*K)*(*Np) * 12 + k * (*Np) + n];
 #endif
-				}
-			}
-			else {
-				continue;
 			}
 		}
 
@@ -882,17 +854,7 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 #endif
 
 		/********** Here the wet and dry status are updated. ***********/
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(DG_THREADS)
-#endif
-		for (int k = 0; k < *K2d; k++) {
-			for (int n = 0; n < *Np2d; n++) {
-				Limited_huhv2D[k * (*Np2d) + n] = fphys2d[*K2d*(*Np2d) + k * (*Np2d) + n];//hu2d
-				Limited_huhv2D[*K2d * (*Np2d) + k * (*Np2d) + n] = fphys2d[*K2d*(*Np2d) * 2 + k * (*Np2d) + n];//hv2d
-			}
-		}
-
-		UpdateWetDryState(fphys, fphys2d, Limited_huhv2D, Nlayer3d, status, *Np, *K, *Np2d, *K2d);
+		UpdateWetDryState(fphys, fphys2d, Nlayer3d, status, *Np, *K, *Np2d, *K2d);
 		/****** ********************** END ********************** ******/
 
 		//Updata Vertical Velocity
@@ -925,7 +887,6 @@ void NdgPhysMat::matEvaluateIMEXRK222()
 
 	//free(Tempfphys2d); Tempfphys2d = NULL;
 	//free(Tempfphys); Tempfphys = NULL;
-	//free(Limited_huhv2D); Limited_huhv2D = NULL;
 	//free(SystemRHS); SystemRHS = NULL;
 	//free(EXfrhs); EXfrhs = NULL;
 	//free(EXfrhs2d); EXfrhs2d = NULL;
@@ -1613,7 +1574,7 @@ void NdgPhysMat::addTecdata(double *fphys, double*fphys2d, vector<int> sizeof_Pe
 		{			
 			h_out[i] = h_out[i] + fphys_h[Swan_DG_Node[location + j]];
 			z_out[i] = z_out[i] + fphys_z[Swan_DG_Node[location + j]];
-			if (fphys_h[Swan_DG_Node[location + j]] > Hcrit) {
+			if (fphys_h[Swan_DG_Node[location + j]] > 0.0) {
 
 #ifndef COUPLING_SWAN
 				u_out[i] = u_out[i] + (fphys_hu[Swan_DG_Node[location + j]] / (fphys_h[Swan_DG_Node[location + j]]));
@@ -1680,7 +1641,7 @@ void NdgPhysMat::addTecdata(double *fphys, double*fphys2d, vector<int> sizeof_Pe
 		h_out[i] = h_out[i] / (float)sizeof_PerNode[i];
 		z_out[i] = z_out[i] / (float)sizeof_PerNode[i];
 
-		if (h_out[i] > Hcrit) {
+		if (h_out[i] > 0.0) {
 
 			u_out[i] = u_out[i] / (float)sizeof_PerNode[i];
 			v_out[i] = v_out[i] / (float)sizeof_PerNode[i];
@@ -1829,50 +1790,50 @@ void NdgPhysMat::addTecdata(double *fphys, double*fphys2d, vector<int> sizeof_Pe
 			outfile1 << ub_out[i / 4];
 			outfile1 << " ";
 			outfile1 << vs_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v1_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v2_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v3_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v4_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v5_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v6_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v7_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v8_out[i / 4];
-			outfile1 << " ";
-			outfile1 << v9_out[i / 4];
-			outfile1 << " ";
-			outfile1 << vb_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v1_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v2_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v3_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v4_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v5_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v6_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v7_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v8_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << v9_out[i / 4];
+			//outfile1 << " ";
+			//outfile1 << vb_out[i / 4];
 
 #ifdef _BAROCLINIC
 			//----------------------------------------------Output Salinity
-			//outfile1 << " ";
-			//outfile1 << S1_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S2_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S3_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S4_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S5_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S6_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S7_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S8_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << S9_out[i / 4];
-			//outfile1 << " ";
-			//outfile1 << vb_out[i / 4];
-			//----------------------------------------------Output Salinity
+			outfile1 << " ";
+			outfile1 << S1_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S2_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S3_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S4_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S5_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S6_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S7_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S8_out[i / 4];
+			outfile1 << " ";
+			outfile1 << S9_out[i / 4];
+			outfile1 << " ";
+			outfile1 << vb_out[i / 4];
+
 			outfile1 << " ";
 			outfile1 << Ss_out[i / 4];
 			outfile1 << " ";

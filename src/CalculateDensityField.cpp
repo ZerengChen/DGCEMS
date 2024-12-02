@@ -60,8 +60,8 @@ void CalculateDensityField(double *fphys) {
 		}
 	}
 
-		Limiter3d(BaroclinicT);
-		Limiter3d(BaroclinicS);
+		//Limiter3d(BaroclinicT);
+		//Limiter3d(BaroclinicS);
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
@@ -69,6 +69,8 @@ void CalculateDensityField(double *fphys) {
 			for (int n = 0; n < Np; n++) {
 				BaroclinicT[k * Np + n] = fmax(0.0, BaroclinicT[k * Np + n]);
 				BaroclinicS[k * Np + n] = fmax(0.0, BaroclinicS[k * Np + n]);
+				BaroclinicT[k * Np + n] = fmin(20.0, BaroclinicT[k * Np + n]);
+				BaroclinicS[k * Np + n] = fmin(35.0, BaroclinicS[k * Np + n]);
 			}
 		}
 
@@ -77,7 +79,7 @@ void CalculateDensityField(double *fphys) {
 #pragma omp parallel for num_threads(DG_THREADS)
 #endif
 	for (int i = 0; i < K; i++) {
-		if ((NdgRegionType)Status3d[i] != NdgRegionWet) {
+		if ((NdgRegionType)Status3d[i] == NdgRegionDry) {
 			for (int p = 0; p < Np; p++) {
 				rho[i * Np + p] = rho0;
 				hT[i * Np + p] = 0.0;
