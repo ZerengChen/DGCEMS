@@ -1,0 +1,56 @@
+Final_time(s):
+44100
+Coupling_freqency:
+1500
+Coupling_time_step:
+1
+Skip int(x) step in order to wait the wave field steady:
+10
+Steps to couple:
+4
+Calculating_time_step_of_DGmodel(s):
+0.2
+Tidal_interval(s):
+600
+Output_times_for_NC(s):
+30
+Gravity(m/s2):
+9.81
+Depmin(m):
+0.05
+Nvar:
+4
+Nfield:
+16
+Nfield2d:
+8
+Density(kg/m3):
+1025
+Physical_bottom_roughness_length(m):
+0.00025
+Physical_surface_roughness_length(m):
+0.02
+Wind_stress_at_x_for_constant(N*m/kg):
+0.0
+Wind_stress_at_y_for_constant(N*m/kg):
+0.0
+Use 3D Limiter status(0=F,1=T):
+1
+Use GOTM status(0=F,1=T):
+0
+Dragforce_coefficient_for_constant:
+0.05
+Constant_vertical_diffusion:
+0.01
+OutputTimeStep_for_TEC:
+120
+Init_temperature(D):
+20
+Init_salimity(kg/m3):
+35
+Parameter_of_accelerate_temperature:
+0.0
+Parameter_of_accelerate_salimity:
+0.714
+The latitude of coriolis parameter(D):
+0.0

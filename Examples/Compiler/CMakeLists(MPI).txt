@@ -1,0 +1,50 @@
+CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
+
+PROJECT(DG3D_DEMO)
+
+# Make Debug
+# set(CMAKE_VERBOSE_MAKEFILE ON)
+
+# Compile Settings
+SET(CMAKE_C_COMPILER "/opt/intel/oneapi2022/mpi/2021.6.0/bin/mpiicc")
+SET(CMAKE_CXX_COMPILER "/opt/intel/oneapi2022/mpi/2021.6.0/bin/mpiicpc")
+
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+
+#IND_PACKAGE( OpenMP REQUIRED)
+#if(OPENMP_FOUND)
+#    message("OPENMP FOUND")
+#    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+#endif()
+#add_definitions(-DDG_THREADS=26)
+#add_definitions(-D_OPENMP)
+
+#add_definitions(-DCOUPLING_SWAN)
+
+#add_definitions(-D_BAROCLINIC)
+
+#add_definitions(-DSEDIMENT_MODEL)
+
+SET(CMAKE_BUILD_TYPE "Debug")
+ADD_DEFINITIONS(-DDEBUG)
+
+SET(CMAKE_C_FLAGS_DEBUG "$ENV{CFLAGS} -g -O0 -w -fsanitize=address -fno-omit-frame-pointer")
+#SET(CMAKE_C_FLAGS_RELEASE "$ENV{CFLAGS} -O3 -w")
+#SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O3 -w -fsanitize=address -fno-omit-frame-pointer")
+SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -w -fPIC")
+
+
+# Excute Settings
+SET(EXECUTABLE_OUTPUT_PATH "${PROJECT_SOURCE_DIR}/bin")
+
+AUX_SOURCE_DIRECTORY(src/ DIR_SRCS)
+
+# Include & Link Settings
+INCLUDE_DIRECTORIES(/data/home/DG/czr/opt/NetCDF/include /data/home/DG/czr/opt/OpenBlas/include /data/home/DG/czr/opt/GOTM/include /data/home/DG/czr/opt/netcdf-cxx-4.2/include /opt/metis/metis-5.1.0/include /opt/intel/oneapi2022/mpi/2021.6.0/include)
+
+LINK_DIRECTORIES(/data/home/DG/czr/opt/netcdf-cxx-4.2/lib /data/home/DG/czr/opt/NetCDF/lib /data/home/DG/czr/opt/OpenBlas/lib /data/home/DG/czr/opt/c_coupler/build /data/home/DG/czr/opt/GOTM/lib /opt/intel/oneapi2022/mpi/2021.6.0/lib/release /opt/metis/metis-5.1.0/lib)
+
+ADD_EXECUTABLE(DGCEMS_MPI ${DIR_SRCS})
+TARGET_LINK_LIBRARIES(DGCEMS_MPI -lmpi -lstdc++ -lc_coupler -lopenblas -lnetcdf_c++ -lnetcdf -lturbulence -lutil -lmetis)
