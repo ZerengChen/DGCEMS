@@ -40,22 +40,23 @@ The '@Test' folder should contain 'Test.m' and grid file 'fort.14'<br>
     * <code>Solver=Test(1,1,Layers)</code><br>
 * Step 5: <br>
     * Run 'init_fphys.m' and 'meshUnion_nc_Output.m'<br>
-    * If the user uses the MPI parallel way,Run 'Geteptreind.m'<br>
+    * If the user uses the MPI parallel, run 'Geteptreind.m'<br>
 * Step 6: Give 'TideElevation.txt'<br>
     * Time series of tide elevation given by the number of open boundary nodes.<br>
 * Step 7: Set up 'param.txt' <br>
 
-## DGCEMS Installation
+## DGCEMS Installation(Linux)
 * Step 1: Edit 'CMakeLists.txt' and select the required modules,including:<br>
     * -DDG_THREADS=<br>
     * -D_OPENMP<br>
-    * -DCOUPLING_SWAN<br>
+	   or find MPI
     * -D_BAROCLINIC<br>
-* Step 2: Configure the project in the build/ directory. <br>    
+* Step 2: Copy the code in 'src/' and then configure the project in the 'build/' directory. <br>    
+Note that the path of GOTM needs to be adjusted in the code!
 <code>cd build</code><br>
 <code>cmake .. -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++</code><br>
 * Step 3: Compiling projects<br>
-<code>make</icode><br>
+<code>make</code><br>
 * Step 4: clean up the build file<br>
 If the user wants to clean up the build file, they can use the<br>
 <code>make clean</code><br>
@@ -69,5 +70,6 @@ Or delete the entire build directory and rebuild<br>
 
 ## Set up and run
 * Step 1: make a folder and copy/link the executable file 'DGCEMS' to this folder.<br>
-* Step 2: prepare all required input files.<br>
-* Step 3: run the model.<br>
+* Step 2: prepare all required input files above.<br>
+'DGCEMS','fort.14','init_fphys.nc','meshUnion.nc','param.txt','TideElevation.txt', and a Run script file if needed.
+* Step 3: run and enjoy the model.<br>
